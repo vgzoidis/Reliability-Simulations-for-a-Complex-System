@@ -1,16 +1,22 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import stats
+import os
+
+# --- Δημιουργία φακέλου για αποτελέσματα ---
+OUTPUT_DIR = "part2_system_reliability"
+if not os.path.exists(OUTPUT_DIR):
+    os.makedirs(OUTPUT_DIR)
 
 # --- Παράμετροι Εξαρτημάτων (Από Πίνακα 2) ---
 components_data = {
     'C1': {'MTTF': 30, 'DC': 0.3, 'MTTR': 12},
-    'C2': {'MTTF': 27, 'DC': 1.0, 'MTTR': 12},
-    'C3': {'MTTF': 27, 'DC': 1.0, 'MTTR': 12},
+    'C2': {'MTTF': 24, 'DC': 1.0, 'MTTR': 12},
+    'C3': {'MTTF': 23, 'DC': 1.0, 'MTTR': 12},
     'C4': {'MTTF': 24, 'DC': 1.0, 'MTTR': 10},
-    'C5': {'MTTF': 25, 'DC': 1.0, 'MTTR': 10},
-    'C6': {'MTTF': 15, 'DC': 1.0, 'MTTR': 8},
-    'C7': {'MTTF': 31, 'DC': 0.4, 'MTTR': 12},
+    'C5': {'MTTF': 27, 'DC': 1.0, 'MTTR': 10},
+    'C6': {'MTTF': 28, 'DC': 1.0, 'MTTR': 8},
+    'C7': {'MTTF': 33, 'DC': 0.4, 'MTTR': 12},
 }
 
 # --- Παράμετροι Προσομοίωσης ---
@@ -348,8 +354,9 @@ def visualize_system_simulation(results):
         ax4.text(bar.get_x() + bar.get_width()/2., height,
                 f'{val:.4f}', ha='center', va='bottom', fontsize=11, fontweight='bold')
     
-    plt.savefig('system_reliability_analysis.png', dpi=150, bbox_inches='tight')
-    print("✓ Γράφημα αποθηκεύτηκε: system_reliability_analysis.png")
+    output_path = os.path.join(OUTPUT_DIR, 'system_reliability_analysis.png')
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    print(f"✓ Γράφημα αποθηκεύτηκε: {output_path}")
 
 
 def create_summary_table(results):
@@ -391,4 +398,4 @@ if __name__ == "__main__":
     create_summary_table(results)
     
     print("\n✓ Ανάλυση ολοκληρώθηκε επιτυχώς!")
-    print("✓ Το γράφημα αποθηκεύτηκε στον τρέχοντα φάκελο.\n")
+    print(f"✓ Το γράφημα αποθηκεύτηκε στον φάκελο: {OUTPUT_DIR}/\n")

@@ -1,6 +1,12 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import stats
+import os
+
+# --- Δημιουργία φακέλου για αποτελέσματα ---
+OUTPUT_DIR = "part1_component_failures"
+if not os.path.exists(OUTPUT_DIR):
+    os.makedirs(OUTPUT_DIR)
 
 # --- Παράμετροι Εξαρτημάτων (Από Πίνακα 2) ---
 components_data = {
@@ -193,8 +199,9 @@ def visualize_single_simulation(component_name, mttf, duty_cycle, duration, dt):
     plt.grid(True, alpha=0.3)
     plt.legend()
     plt.tight_layout()
-    plt.savefig(f'{component_name}_simulation_example.png', dpi=150)
-    print(f"\nΓράφημα αποθηκεύτηκε: {component_name}_simulation_example.png")
+    output_path = os.path.join(OUTPUT_DIR, f'{component_name}_simulation_example.png')
+    plt.savefig(output_path, dpi=150)
+    print(f"\nΓράφημα αποθηκεύτηκε: {output_path}")
 
 
 def create_summary_plots(results_list):
@@ -254,8 +261,9 @@ def create_summary_plots(results_list):
         ax4.grid(True, alpha=0.3)
     
     plt.tight_layout()
-    plt.savefig('failure_simulation_summary.png', dpi=150)
-    print(f"\nΣυγκεντρωτικό γράφημα αποθηκεύτηκε: failure_simulation_summary.png")
+    output_path = os.path.join(OUTPUT_DIR, 'failure_simulation_summary.png')
+    plt.savefig(output_path, dpi=150)
+    print(f"\nΣυγκεντρωτικό γράφημα αποθηκεύτηκε: {output_path}")
 
 
 # --- ΚΥΡΙΑ ΕΚΤΕΛΕΣΗ ---
@@ -298,4 +306,4 @@ if __name__ == "__main__":
     print("="*80)
     
     print("\n✓ Προσομοίωση ολοκληρώθηκε επιτυχώς!")
-    print("✓ Τα γραφήματα αποθηκεύτηκαν στον τρέχοντα φάκελο.")
+    print(f"✓ Τα γραφήματα αποθηκεύτηκαν στον φάκελο: {OUTPUT_DIR}/")

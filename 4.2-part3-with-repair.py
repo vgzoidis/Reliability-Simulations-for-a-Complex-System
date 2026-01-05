@@ -1,6 +1,12 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import stats
+import os
+
+# --- Δημιουργία φακέλου για αποτελέσματα ---
+OUTPUT_DIR = "part3_component_repair"
+if not os.path.exists(OUTPUT_DIR):
+    os.makedirs(OUTPUT_DIR)
 
 # --- Παράμετροι Εξαρτημάτων (Από Πίνακα 2) ---
 components_data = {
@@ -374,8 +380,9 @@ def visualize_component_with_repair(results):
     ax5.set_ylim([0, 1.1])
     ax5.grid(True, alpha=0.3, axis='y')
     
-    plt.savefig(f'{comp_name}_repair_analysis.png', dpi=150, bbox_inches='tight')
-    print(f"\n✓ Γράφημα αποθηκεύτηκε: {comp_name}_repair_analysis.png")
+    output_path = os.path.join(OUTPUT_DIR, f'{comp_name}_repair_analysis.png')
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    print(f"\n✓ Γράφημα αποθηκεύτηκε: {output_path}")
 
 
 def create_summary_comparison(all_results):
@@ -446,8 +453,9 @@ def create_summary_comparison(all_results):
     ax4.grid(True, alpha=0.3, axis='y')
     
     plt.tight_layout()
-    plt.savefig('repair_summary_comparison.png', dpi=150, bbox_inches='tight')
-    print("\n✓ Συγκεντρωτικό γράφημα αποθηκεύτηκε: repair_summary_comparison.png")
+    output_path = os.path.join(OUTPUT_DIR, 'repair_summary_comparison.png')
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    print(f"\n✓ Συγκεντρωτικό γράφημα αποθηκεύτηκε: {output_path}")
 
 
 def create_summary_table(all_results):
@@ -514,4 +522,4 @@ if __name__ == "__main__":
     create_summary_table(all_results)
     
     print("\n✓ Ανάλυση με επιδιόρθωση ολοκληρώθηκε επιτυχώς!")
-    print("✓ Όλα τα γραφήματα αποθηκεύτηκαν στον τρέχοντα φάκελο.\n")
+    print(f"✓ Όλα τα γραφήματα αποθηκεύτηκαν στον φάκελο: {OUTPUT_DIR}/\n")
