@@ -19,10 +19,10 @@
 ```bash
 pip install -r requirements.txt
 
-python main.py
-
-# Execute specific part
-python main.py --part 1 2
+python main.py                      # Run all simulations (default)
+python main.py -m no_repair         # Run only λ, R, MTTF simulation
+python main.py -m with_repair       # Run only MTBF, MUT, MTTR, A simulation
+python main.py -i                   # Show config parameters
 ```
 
 ## Results
