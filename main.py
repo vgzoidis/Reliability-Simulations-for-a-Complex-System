@@ -4,80 +4,57 @@ import argparse
 import subprocess
 from config import print_header, print_simulation_info
 
-def run_part1():
-    print_header("PART 1: COMPONENT FAILURE SIMULATION", "=", 70)
-    result = subprocess.run([sys.executable, "src/part1_failure_simulation.py"], capture_output=False, text=True)
+def run_no_repair():
+    print_header("SIMULATION WITHOUT REPAIR (λ, R, MTTF)", "=", 70)
+    result = subprocess.run([sys.executable, "src/simulation_no_repair.py"], capture_output=False, text=True)
     if result.returncode != 0:
-        raise Exception(f"Part 1 failed with return code {result.returncode}")
+        raise Exception(f"Simulation failed with return code {result.returncode}")
 
-def run_part2():
-    print_header("PART 2: SYSTEM RELIABILITY", "=", 70)
-    result = subprocess.run([sys.executable, "src/part2_system_reliability.py"], capture_output=False, text=True)
+def run_with_repair():
+    print_header("SIMULATION WITH REPAIR (MTBF, MUT, MTTR, A)", "=", 70)
+    result = subprocess.run([sys.executable, "src/simulation_with_repair.py"], capture_output=False, text=True)
     if result.returncode != 0:
-        raise Exception(f"Part 2 failed with return code {result.returncode}")
-
-def run_part3():
-    print_header("PART 3: COMPONENT SIMULATION WITH REPAIR", "=", 70)
-    result = subprocess.run([sys.executable, "src/part3_component_repair.py"], capture_output=False, text=True)
-    if result.returncode != 0:
-        raise Exception(f"Part 3 failed with return code {result.returncode}")
-
-def run_part4():
-    print_header("PART 4: SYSTEM ANALYSIS WITH REPAIR", "=", 70)
-    result = subprocess.run([sys.executable, "src/part4_system_repair.py"], capture_output=False, text=True)
-    if result.returncode != 0:
-        raise Exception(f"Part 4 failed with return code {result.returncode}")
+        raise Exception(f"Simulation failed with return code {result.returncode}")
 
 def run_all():    
-    parts = [
-        ("1", "Component Failure Simulation (without MTTR)", run_part1),
-        ("2", "System Reliability (without MTTR)", run_part2),
-        ("3", "Component Simulation with Repair", run_part3),
-        ("4", "System Analysis with Repair", run_part4),
-    ]
-    
-    for _,_, part_func in parts:
-        part_func()
+    run_no_repair()
+    run_with_repair()
 
 def main():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Reliability Simulation for a Complex System")
     parser.add_argument(
-        '-p', '--part',
-        nargs='+',
-        type=int,
-        choices=[1, 2, 3, 4],
-        help='execute specific part'
+        '-m', '--mode',
+        choices=['no_repair', 'with_repair', 'all'],
+        default='all',
+        help='Simulation mode: no_repair (λ,R,MTTF), with_repair (MTBF,MUT,MTTR,A), or all'
     )
     parser.add_argument(
         '-i', '--info',
         action='store_true',
-        help='show config parameters'
+        help='Show config parameters'
     )
 
     print("\n" + "=" * 70)
     print("RELIABILITY SIMULATION FOR A COMPLEX SYSTEM".center(70))
     print("=" * 70)
     
-    # Parse arguments
     args = parser.parse_args()
+    
     if args.info:
         print_simulation_info()
         return
-    elif args.part:
-        part_functions = {
-            1: run_part1,
-            2: run_part2,
-            3: run_part3,
-            4: run_part4,
-        }
-        
-        for part_num in sorted(set(args.part)):           
-            start_time = time.time()
-            part_functions[part_num]()
-            elapsed = time.time() - start_time
-            print(f"\nPart {part_num} completed in {elapsed:.2f} seconds")
+    
+    start_time = time.time()
+    
+    if args.mode == 'no_repair':
+        run_no_repair()
+    elif args.mode == 'with_repair':
+        run_with_repair()
     else:
         run_all()
+    
+    elapsed = time.time() - start_time
+    print(f"\nTotal time: {elapsed:.2f} seconds")
 
 if __name__ == "__main__":
     main()

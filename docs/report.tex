@@ -1,0 +1,349 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[greek,english]{babel}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{geometry}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+
+\geometry{margin=2.5cm}
+
+\lstset{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    frame=single,
+    language=Python,
+    keywordstyle=\color{blue},
+    commentstyle=\color{gray},
+    stringstyle=\color{red}
+}
+
+\title{\textbf{Υπολογιστική Εργασία} \\ Αξιοπιστία Συστημάτων}
+\author{
+    Τζανέτης Σάββας \\ ΑΕΜ: 10889
+    \and
+    Βασίλειος Ζωίδης \\ ΑΕΜ: 10652
+}
+\date{\today}
+
+\begin{document}
+
+\selectlanguage{greek}
+\maketitle
+\newpage
+
+\tableofcontents
+\newpage
+
+\section{Εισαγωγή}
+
+Στην παρούσα εργασία μελετάται η αξιοπιστία ενός σύνθετου συστήματος που αποτελείται από 7 εξαρτήματα (C1-C7) με δομή σειράς και παράλληλων μπλοκ. Το σύστημα έχει την εξής τοπολογία:
+
+\begin{center}
+\texttt{C1 → [C2 || C3 || C4] → [C5 || C6] → C7}
+\end{center}
+
+όπου τα σύμβολα → υποδηλώνουν σύνδεση σε σειρά και || σύνδεση παράλληλα.
+
+Η ανάλυση χωρίζεται σε δύο μέρη:
+\begin{enumerate}
+    \item \textbf{Ανάλυση χωρίς επιδιόρθωση (MTTR=0)}: Υπολογισμός ρυθμού αστοχίας ($\lambda$), αξιοπιστίας ($R$) και μέσου χρόνου μέχρι την αστοχία (MTTF)
+    \item \textbf{Ανάλυση με επιδιόρθωση (MTTR>0)}: Υπολογισμός μέσου χρόνου μεταξύ αστοχιών (MTBF), μέσου χρόνου λειτουργίας (MUT), μέσου χρόνου επιδιόρθωσης (MTTR) και διαθεσιμότητας (A)
+\end{enumerate}
+
+\section{Παράμετροι Προσομοίωσης}
+
+\subsection{Χαρακτηριστικά Εξαρτημάτων}
+
+Τα χαρακτηριστικά των 7 εξαρτημάτων φαίνονται στον Πίνακα \ref{tab:components}.
+
+\begin{table}[H]
+\centering
+\caption{Χαρακτηριστικά εξαρτημάτων}
+\label{tab:components}
+\begin{tabular}{@{}cccc@{}}
+\toprule
+\textbf{Εξάρτημα} & \textbf{MTTF (h)} & \textbf{Duty Cycle} & \textbf{MTTR (h)} \\ 
+\midrule
+C1 & 30 & 0.3 & 12 \\
+C2 & 24 & 1.0 & 12 \\
+C3 & 23 & 1.0 & 12 \\
+C4 & 24 & 1.0 & 10 \\
+C5 & 27 & 1.0 & 10 \\
+C6 & 28 & 1.0 & 8 \\
+C7 & 33 & 0.4 & 12 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Παράμετροι Προσομοίωσης Monte Carlo}
+
+\begin{itemize}
+    \item \textbf{Χρόνος μελέτης εξαρτημάτων (Tc)}: 100 ώρες
+    \item \textbf{Χρόνος μελέτης συστήματος (Ts)}: 30 ώρες
+    \item \textbf{Χρονικό βήμα (dt)}: 0.01 ώρες
+    \item \textbf{Αριθμός προσομοιώσεων (N)}: 1000
+\end{itemize}
+
+\section{Μέθοδος Προσομοίωσης}
+
+\subsection{Μοντέλο Συμπεριφοράς Εξαρτήματος}
+
+Κάθε εξάρτημα μπορεί να βρίσκεται σε μία από τις εξής καταστάσεις:
+\begin{itemize}
+    \item \textbf{Κατάσταση 2 (Operational)}: Το εξάρτημα λειτουργεί κανονικά
+    \item \textbf{Κατάσταση 1 (Non-operational - DC)}: Το εξάρτημα δεν λειτουργεί λόγω κύκλου εργασίας (duty cycle)
+    \item \textbf{Κατάσταση 0 (Under repair)}: Το εξάρτημα έχει αστοχήσει και επιδιορθώνεται
+\end{itemize}
+
+\subsection{Μοντέλο Αστοχίας}
+
+Η αστοχία κάθε εξαρτήματος ακολουθεί την εκθετική κατανομή με παράμετρο $\lambda = \frac{1}{\text{MTTF}}$. Η πιθανότητα αστοχίας σε διάστημα $dt$ δίνεται από:
+
+\begin{equation}
+P_{\text{fail}}(dt) = 1 - e^{-\lambda \cdot dt}
+\end{equation}
+
+Ο duty cycle (DC) επηρεάζει το πραγματικό MTTF ως:
+
+\begin{equation}
+\text{MTBF}_{\text{effective}} = \frac{\text{MTTF}}{\text{DC}}
+\end{equation}
+
+\subsection{Μοντέλο Επιδιόρθωσης}
+
+Ο χρόνος επιδιόρθωσης ακολουθεί εκθετική κατανομή με μέσο χρόνο MTTR:
+
+\begin{equation}
+T_{\text{repair}} \sim \text{Exp}(\text{MTTR})
+\end{equation}
+
+\section{Αποτελέσματα - Ανάλυση χωρίς Επιδιόρθωση}
+
+\subsection{Αξιοπιστία Εξαρτημάτων}
+
+Τα αποτελέσματα για την αξιοπιστία των εξαρτημάτων στο χρόνο $T_c = 100h$ παρουσιάζονται στον Πίνακα \ref{tab:comp_no_repair}.
+
+\begin{table}[H]
+\centering
+\caption{Αποτελέσματα αξιοπιστίας εξαρτημάτων (χωρίς επιδιόρθωση)}
+\label{tab:comp_no_repair}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\textbf{Εξάρτημα} & \textbf{$R_{\text{exp}}$} & \textbf{$R_{\text{theo}}$} & \textbf{Σχετικό Σφάλμα (\%)} & \textbf{$\lambda_{\text{exp}}$ (fail/h)} \\ 
+\midrule
+C1 & 0.3410 & 0.3679 & 7.3 & 0.035862 \\
+C2 & 0.0160 & 0.0155 & 3.2 & 0.041352 \\
+C3 & 0.0100 & 0.0129 & 22.7 & 0.046052 \\
+C4 & 0.0160 & 0.0155 & 3.2 & 0.041352 \\
+C5 & 0.0230 & 0.0246 & 6.6 & 0.037723 \\
+C6 & 0.0200 & 0.0281 & 28.9 & 0.039120 \\
+C7 & 0.3020 & 0.2976 & 1.5 & 0.029933 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Θεωρητικός Υπολογισμός:}
+\begin{equation}
+R_i(t) = e^{-\lambda_i \cdot \text{DC}_i \cdot t} = e^{-\frac{\text{DC}_i \cdot t}{\text{MTTF}_i}}
+\end{equation}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{results/no_repair/component_reliability.png}
+\caption{Σύγκριση πειραματικής και θεωρητικής αξιοπιστίας και ρυθμού αστοχίας εξαρτημάτων}
+\label{fig:comp_reliability}
+\end{figure}
+
+\subsection{Αξιοπιστία Συστήματος}
+
+Τα αποτελέσματα για το σύστημα στο χρόνο $T_s = 30h$ παρουσιάζονται στον Πίνακα \ref{tab:sys_no_repair}.
+
+\begin{table}[H]
+\centering
+\caption{Αποτελέσματα αξιοπιστίας συστήματος (χωρίς επιδιόρθωση)}
+\label{tab:sys_no_repair}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Μέτρο} & \textbf{Πειραματική Τιμή} & \textbf{Θεωρητική Τιμή} & \textbf{Σχετικό Σφάλμα (\%)} \\ 
+\midrule
+$R_{\text{system}}(T_s=30h)$ & 0.1860 & 0.1811 & 2.7 \\
+$\lambda_{\text{system}}$ (fail/h) & 0.056067 & 0.056961 & -- \\
+MTTF$_{\text{system}}$ (h) & 13.97 & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Θεωρητικός Υπολογισμός:}
+
+Υπολογίζουμε πρώτα την αξιοπιστία κάθε μπλοκ:
+\begin{align}
+R_{\text{block2}} &= 1 - (1-R_{C2})(1-R_{C3})(1-R_{C4}) \\
+R_{\text{block3}} &= 1 - (1-R_{C5})(1-R_{C6})
+\end{align}
+
+Η αξιοπιστία του συστήματος (σύνδεση σε σειρά):
+\begin{equation}
+R_{\text{system}} = R_{C1} \cdot R_{\text{block2}} \cdot R_{\text{block3}} \cdot R_{C7}
+\end{equation}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{results/no_repair/system_reliability.png}
+\caption{Αξιοπιστία συστήματος και κατανομή χρόνων αστοχίας}
+\label{fig:sys_reliability}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{results/no_repair/timeline_no_repair.png}
+\caption{Χρονοδιάγραμμα δείγματος προσομοίωσης - Καταστάσεις συστήματος και εξαρτημάτων}
+\label{fig:timeline_no_repair}
+\end{figure}
+
+\section{Αποτελέσματα - Ανάλυση με Επιδιόρθωση}
+
+\subsection{Μετρικές Εξαρτημάτων}
+
+Τα αποτελέσματα για τα εξαρτήματα με επιδιόρθωση παρουσιάζονται στον Πίνακα \ref{tab:comp_repair}.
+
+\begin{table}[H]
+\centering
+\caption{Μετρικές εξαρτημάτων με επιδιόρθωση}
+\label{tab:comp_repair}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+\textbf{Εξάρτημα} & \textbf{MTBF$_{\text{exp}}$ (h)} & \textbf{MTBF$_{\text{theo}}$ (h)} & \textbf{MTTR$_{\text{exp}}$ (h)} & \textbf{$A_{\text{exp}}$} & \textbf{$A_{\text{theo}}$} \\ 
+\midrule
+C1 & 49.86 & 100.00 & 12.64 & 0.8320 & 0.8929 \\
+C2 & 19.60 & 24.00 & 12.01 & 0.6941 & 0.6667 \\
+C3 & 18.70 & 23.00 & 11.83 & 0.6824 & 0.6571 \\
+C4 & 19.05 & 24.00 & 10.32 & 0.7147 & 0.7059 \\
+C5 & 21.56 & 27.00 & 10.09 & 0.7498 & 0.7297 \\
+C6 & 22.13 & 28.00 & 8.29 & 0.7875 & 0.7778 \\
+C7 & 44.82 & 82.50 & 12.27 & 0.7850 & 0.8730 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Θεωρητικοί Υπολογισμοί:}
+\begin{align}
+\text{MTBF}_{\text{theo}} &= \frac{\text{MTTF}}{\text{DC}} \\
+A_{\text{theo}} &= \frac{\text{MTBF}}{\text{MTBF} + \text{MTTR}}
+\end{align}
+
+\textbf{Σημείωση:} Η διαθεσιμότητα (A) υπολογίζεται ως το ποσοστό του χρόνου που το εξάρτημα δεν είναι υπό επιδιόρθωση (καταστάσεις 1 και 2). Για εξαρτήματα με DC < 1, η κατάσταση 1 (non-operational due to duty cycle) θεωρείται διαθέσιμη καθώς το εξάρτημα δεν έχει αστοχήσει, απλώς δεν απαιτείται να λειτουργεί.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{results/with_repair/component_repair.png}
+\caption{Μετρικές αξιοπιστίας εξαρτημάτων με επιδιόρθωση}
+\label{fig:comp_repair}
+\end{figure}
+
+\subsection{Μετρικές Συστήματος}
+
+Τα αποτελέσματα για το σύστημα με επιδιόρθωση παρουσιάζονται στον Πίνακα \ref{tab:sys_repair}.
+
+\begin{table}[H]
+\centering
+\caption{Μετρικές συστήματος με επιδιόρθωση}
+\label{tab:sys_repair}
+\begin{tabular}{@{}lc@{}}
+\toprule
+\textbf{Μέτρο} & \textbf{Τιμή} \\ 
+\midrule
+MTBF$_{\text{system}}$ (h) & 19.05 \\
+MUT$_{\text{system}}$ (h) & 19.05 \\
+MTTR$_{\text{system}}$ (h) & 8.11 \\
+$A_{\text{system}}$ & 0.7409 (74.09\%) \\
+$\lambda_{\text{system}}$ (fail/h) & 0.0525 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{results/with_repair/system_repair.png}
+\caption{Κατανομές MTBF και MTTR συστήματος και μετρικές αξιοπιστίας}
+\label{fig:sys_repair}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{results/with_repair/timeline_with_repair.png}
+\caption{Χρονοδιάγραμμα συστήματος και εξαρτημάτων με επιδιόρθωση}
+\label{fig:timeline_repair}
+\end{figure}
+
+\section{Ανάλυση Αποτελεσμάτων}
+
+\subsection{Αξιοπιστία χωρίς Επιδιόρθωση}
+
+\begin{itemize}
+    \item Τα πειραματικά αποτελέσματα συμφωνούν καλά με τις θεωρητικές προβλέψεις (σφάλμα < 10\% για τα περισσότερα εξαρτήματα)
+    \item Τα εξαρτήματα C3 και C6 παρουσιάζουν μεγαλύτερα σφάλματα (22.7\% και 28.9\%) λόγω του μικρού αριθμού δειγμάτων αστοχίας (μόνο 10 και 20 αστοχίες αντίστοιχα)
+    \item Η αξιοπιστία του συστήματος είναι σημαντικά χαμηλότερη από αυτή των επιμέρους εξαρτημάτων, όπως αναμένεται για σύνδεση σε σειρά
+    \item Το σύστημα έχει MTTF ≈ 14h, πολύ χαμηλότερο από τα MTTF των εξαρτημάτων
+\end{itemize}
+
+\subsection{Μετρικές με Επιδιόρθωση}
+
+\begin{itemize}
+    \item Το MTBF είναι μικρότερο από το θεωρητικό για τα εξαρτήματα C1 και C7 (με DC < 1), πιθανώς λόγω της αλληλεπίδρασης του duty cycle με τη διαδικασία επιδιόρθωσης
+    \item Ο πειραματικός MTTR συμφωνεί πολύ καλά με το θεωρητικό (σφάλμα < 10\%)
+    \item Η διαθεσιμότητα του συστήματος είναι 74.09\%, που σημαίνει ότι το σύστημα λειτουργεί κανονικά περίπου 3/4 του χρόνου
+    \item Το σύστημα έχει MTBF ≈ 19h και MTTR ≈ 8h
+\end{itemize}
+
+\section{Περιγραφή Κώδικα}
+
+Ο κώδικας οργανώνεται σε δύο κύρια αρχεία:
+
+\subsection{simulation\_no\_repair.py}
+
+Υλοποιεί την προσομοίωση Monte Carlo χωρίς επιδιόρθωση:
+\begin{itemize}
+    \item \texttt{simulate\_component()}: Προσομοιώνει ένα εξάρτημα μέχρι την πρώτη αστοχία
+    \item \texttt{simulate\_system()}: Προσομοιώνει το σύστημα με τη λογική των παράλληλων μπλοκ
+    \item \texttt{run\_component\_analysis()}: Εκτελεί N προσομοιώσεις για κάθε εξάρτημα
+    \item \texttt{run\_system\_analysis()}: Εκτελεί N προσομοιώσεις για το σύστημα
+\end{itemize}
+
+Υπολογίζει: $\lambda$, $R(T_c)$, MTTF
+
+\subsection{simulation\_with\_repair.py}
+
+Υλοποιεί την προσομοίωση Monte Carlo με επιδιόρθωση:
+\begin{itemize}
+    \item \texttt{simulate\_component()}: Προσομοιώνει εξάρτημα με δυνατότητα επιδιόρθωσης
+    \item \texttt{simulate\_system()}: Προσομοιώνει σύστημα με δυνατότητα επιδιόρθωσης εξαρτημάτων
+    \item Καταγράφει όλες τις περιόδους λειτουργίας και επιδιόρθωσης
+\end{itemize}
+
+Υπολογίζει: MTBF, MUT, MTTR, A
+
+\subsection{Κύριες Παράμετροι}
+
+\begin{lstlisting}
+Tc = 100.0      # Χρόνος μελέτης εξαρτημάτων
+Ts = 30.0       # Χρόνος μελέτης συστήματος
+DT = 0.01       # Χρονικό βήμα
+N_SIMS = 1000   # Αριθμός προσομοιώσεων Monte Carlo
+\end{lstlisting}
+
+\section{Συμπεράσματα}
+
+\begin{enumerate}
+    \item Η μέθοδος Monte Carlo παρέχει ακριβείς εκτιμήσεις των μετρικών αξιοπιστίας, με σφάλματα κάτω από 10\% για τα περισσότερα μεγέθη
+    \item Η αξιοπιστία του συστήματος επηρεάζεται σημαντικά από τη σύνδεση σε σειρά των εξαρτημάτων
+    \item Η επιδιόρθωση βελτιώνει δραστικά τη διαθεσιμότητα του συστήματος, επιτρέποντας λειτουργία για μεγαλύτερες περιόδους
+    \item Το duty cycle επηρεάζει τόσο την αξιοπιστία όσο και τη διαθεσιμότητα των εξαρτημάτων
+    \item Το σύστημα με επιδιόρθωση επιτυγχάνει διαθεσιμότητα 74\%, που είναι αποδεκτή για πολλές πρακτικές εφαρμογές
+\end{enumerate}
+
+\end{document}
