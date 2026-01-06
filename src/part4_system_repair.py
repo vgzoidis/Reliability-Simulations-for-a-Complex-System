@@ -28,8 +28,7 @@ def run_system_monte_carlo_with_repair(components_db, duration, dt, n_sims):
     sample_component_histories = None
     
     for i in range(n_sims):
-        time_axis, system_history, comp_histories, up_times, down_times = \
-            simulate_system_with_repair(components_db, duration, dt)
+        time_axis, system_history, comp_histories, up_times, down_times = simulate_system_with_repair(components_db, duration, dt)
         
         # Save first results
         if i == 0:
@@ -48,7 +47,7 @@ def run_system_monte_carlo_with_repair(components_db, duration, dt, n_sims):
         total_down_time += down_time
         
         if (i + 1) % 100 == 0:
-            print(f"Ολοκληρώθηκαν {i + 1}/{n_sims} προσομοιώσεις...")
+            print(f"Completed {i + 1}/{n_sims} simulations...")
     
     # 1. Mean Time Between Failures
     if len(all_system_up_times) > 0:
@@ -57,12 +56,12 @@ def run_system_monte_carlo_with_repair(components_db, duration, dt, n_sims):
         mtbf_median = np.median(all_system_up_times)
         
         print(f"\nMean Time Between Failures:")
-        print(f"Μέσος όρος & MUT:               {mtbf_system:.4f} ώρες")
-        print(f"Τυπική απόκλιση:                {mtbf_std:.4f} ώρες")
-        print(f"Διάμεσος:                       {mtbf_median:.4f} ώρες")
-        print(f"Ελάχιστος:                      {min(all_system_up_times):.4f} ώρες")
-        print(f"Μέγιστος:                       {max(all_system_up_times):.4f} ώρες")
-        print(f"Συνολικές περίοδοι λειτουργίας: {len(all_system_up_times)}")
+        print(f"Mean & MUT:                     {mtbf_system:.4f} hours")
+        print(f"Standard deviation:             {mtbf_std:.4f} hours")
+        print(f"Median:                         {mtbf_median:.4f} hours")
+        print(f"Minimum:                        {min(all_system_up_times):.4f} hours")
+        print(f"Maximum:                        {max(all_system_up_times):.4f} hours")
+        print(f"Total operational periods:      {len(all_system_up_times)}")
     else:
         mtbf_system = float('inf')
         mtbf_std = 0
@@ -75,12 +74,12 @@ def run_system_monte_carlo_with_repair(components_db, duration, dt, n_sims):
         mttr_median = np.median(all_system_down_times)
         
         print(f"\nMean Time To Repair:")
-        print(f"Μέσος όρος:                {mttr_system:.4f} ώρες")
-        print(f"Τυπική απόκλιση:           {mttr_std:.4f} ώρες")
-        print(f"Διάμεσος:                  {mttr_median:.4f} ώρες")
-        print(f"Ελάχιστος:                 {min(all_system_down_times):.4f} ώρες")
-        print(f"Μέγιστος:                  {max(all_system_down_times):.4f} ώρες")
-        print(f"Συνολικές περίοδοι βλάβης: {len(all_system_down_times)}")
+        print(f"Mean:                           {mttr_system:.4f} hours")
+        print(f"Standard deviation:             {mttr_std:.4f} hours")
+        print(f"Median:                         {mttr_median:.4f} hours")
+        print(f"Minimum:                        {min(all_system_down_times):.4f} hours")
+        print(f"Maximum:                        {max(all_system_down_times):.4f} hours")
+        print(f"Total failure periods:          {len(all_system_down_times)}")
     else:
         mttr_system = 0
         mttr_std = 0
@@ -92,24 +91,24 @@ def run_system_monte_carlo_with_repair(components_db, duration, dt, n_sims):
     
     print(f"\nAvailability:")
     print(f"A = {availability_system:.6f} ({availability_system * 100:.2f}%)")
-    print(f"Μέσος χρόνος λειτουργίας ανά προσομοίωση: {total_up_time/n_sims:.4f}h")
-    print(f"Μέσος χρόνος βλάβης ανά προσομοίωση:      {total_down_time/n_sims:.4f}h")
+    print(f"Average operational time per simulation: {total_up_time/n_sims:.4f}h")
+    print(f"Average fault time per simulation:      {total_down_time/n_sims:.4f}h")
     
     # Theoretical availability
     if mtbf_system != float('inf') and mtbf_system > 0:
         availability_theo = mtbf_system / (mtbf_system + mttr_system)
-        print(f"Θεωρητική (από MTBF/(MTBF+MTTR)):         {availability_theo:.6f} ({availability_theo * 100:.2f}%)")
-        print(f"Σχετικό σφάλμα:                           {abs(availability_system - availability_theo) / availability_theo * 100:.2f}%")
+        print(f"Theoretical (from MTBF/(MTBF+MTTR)):    {availability_theo:.6f} ({availability_theo * 100:.2f}%)")
+        print(f"Relative error:                         {abs(availability_system - availability_theo) / availability_theo * 100:.2f}%")
     
     # Average number of fault changes
     avg_failures = len(all_system_up_times) / n_sims
     print(f"\nFault Statistics:")
-    print(f"Συνολικός αριθμός βλαβών συστήματος:  {len(all_system_up_times)}")
-    print(f"Μέσος αριθμός βλαβών ανά προσομοίωση: {avg_failures:.2f}")
+    print(f"Total number of system failures:      {len(all_system_up_times)}")
+    print(f"Average faults per simulation:        {avg_failures:.2f}")
     
     if mtbf_system != float('inf') and mtbf_system > 0:
         failure_rate = 1 / mtbf_system
-        print(f"Ρυθμός αποτυχίας λ:                   {failure_rate:.6f} βλάβες/ώρα")
+        print(f"Failure rate λ:                       {failure_rate:.6f} failures/hour")
     
     print(f"{'='*70}\n")
     
@@ -226,7 +225,7 @@ def visualize_system_timeline(results):
     
     # Components list with system overall
     components = sorted(comp_histories.keys())
-    all_items = ['ΣΥΣΤΗΜΑ'] + components
+    all_items = ['SYSTEM'] + components
     n_items = len(all_items)
     
     row_height = 0.8
@@ -276,9 +275,9 @@ def visualize_system_timeline(results):
     
     ax.set_xlim([0, time[-1]])
     ax.set_ylim([-0.5, n_items - 0.5])
-    ax.set_xlabel('Χρόνος Λειτουργίας (ώρες)', fontsize=13, fontweight='bold')
-    ax.set_ylabel('Εξάρτημα / Σύστημα', fontsize=13, fontweight='bold')
-    ax.set_title('Κατάσταση Συστήματος και Εξαρτημάτων σε Συνάρτηση με τον Χρόνο', fontsize=15, fontweight='bold', pad=20)
+    ax.set_xlabel('Operational Time (hours)', fontsize=13, fontweight='bold')
+    ax.set_ylabel('Component / System', fontsize=13, fontweight='bold')
+    ax.set_title('System and Component State Over Time', fontsize=15, fontweight='bold', pad=20)
     ax.set_yticks(range(n_items))
     ax.set_yticklabels(all_items, fontsize=11, fontweight='bold')
     ax.grid(True, axis='x', alpha=0.3, linestyle='--', color='gray')
@@ -312,11 +311,11 @@ def create_system_analysis_plots(results):
         if results['mtbf'] != float('inf'):
             x = np.linspace(0, max(results['all_up_times']), 200)
             theoretical = (1/results['mtbf']) * np.exp(-x/results['mtbf'])
-            ax1.plot(x, theoretical, 'r-', linewidth=2.5, label='Θεωρητική Εκθετική', alpha=0.8)
+            ax1.plot(x, theoretical, 'r-', linewidth=2.5, label='Theoretical Exponential', alpha=0.8)
         
-        ax1.set_xlabel('Χρόνος Λειτουργίας Συστήματος (ώρες)', fontsize=12, fontweight='bold')
-        ax1.set_ylabel('Πυκνότητα Πιθανότητας', fontsize=12, fontweight='bold')
-        ax1.set_title('Κατανομή MTBF Συστήματος', fontsize=13, fontweight='bold', pad=15)
+        ax1.set_xlabel('System Operational Time (hours)', fontsize=12, fontweight='bold')
+        ax1.set_ylabel('Probability Density', fontsize=12, fontweight='bold')
+        ax1.set_title('System MTBF Distribution', fontsize=13, fontweight='bold', pad=15)
         ax1.legend(fontsize=11, framealpha=0.95, shadow=True)
         ax1.grid(True, alpha=0.3, linestyle='--')
     
@@ -326,9 +325,9 @@ def create_system_analysis_plots(results):
         ax2.hist(results['all_down_times'], bins=50, alpha=0.75, color='#e74c3c', edgecolor='black', density=True, linewidth=1.2)
         ax2.axvline(x=results['mttr'], color='#c0392b', linestyle='--', linewidth=3, label=f'MTTR={results["mttr"]:.3f}h', alpha=0.9)
         
-        ax2.set_xlabel('Χρόνος Βλάβης Συστήματος (ώρες)', fontsize=12, fontweight='bold')
-        ax2.set_ylabel('Πυκνότητα Πιθανότητας', fontsize=12, fontweight='bold')
-        ax2.set_title('Κατανομή MTTR Συστήματος', fontsize=13, fontweight='bold', pad=15)
+        ax2.set_xlabel('System Failure Time (hours)', fontsize=12, fontweight='bold')
+        ax2.set_ylabel('Probability Density', fontsize=12, fontweight='bold')
+        ax2.set_title('System MTTR Distribution', fontsize=13, fontweight='bold', pad=15)
         ax2.legend(fontsize=11, framealpha=0.95, shadow=True)
         ax2.grid(True, alpha=0.3, linestyle='--')
     
@@ -367,7 +366,7 @@ def create_system_analysis_plots(results):
            textprops={'fontsize': 13, 'weight': 'bold'},
            wedgeprops={'edgecolor': 'white', 'linewidth': 2, 'antialiased': True})
     
-    ax3.set_title('Διαθεσιμότητα Συστήματος (Availability)', fontsize=14, fontweight='bold', pad=20)
+    ax3.set_title('System Availability', fontsize=14, fontweight='bold', pad=20)
     
     output_path = os.path.join(OUTPUT_DIR, 'system_repair_analysis.png')
     plt.savefig(output_path, dpi=150, bbox_inches='tight')

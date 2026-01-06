@@ -10,7 +10,7 @@ from config import (
     Tc, DT, N_SIMS,
     ensure_output_dir)
 
-# Executes N simulations with MTTR for the system, calculating:
+# Executes N simulations with MTTR for a component, calculating:
 # - Mean Time Between Failures
 # - Mean Up Time
 # - Mean Time To Repair
@@ -52,7 +52,7 @@ def run_monte_carlo_with_repair(component_name, mttf, duty_cycle, mttr, duration
         all_total_down_time.append(down_time)
         
         if (i + 1) % 100 == 0:
-            print(f"Ολοκληρώθηκαν {i + 1}/{n_sims} προσομοιώσεις...")
+            print(f"Completed {i + 1}/{n_sims} simulations...")
     
     # Calculate effective MTTF (needed for comparisons)
     if duty_cycle > 0:
@@ -66,9 +66,9 @@ def run_monte_carlo_with_repair(component_name, mttf, duty_cycle, mttr, duration
         mtbf_std = np.std(all_up_times)
 
         print(f"\nMean Time Between Failures:")
-        print(f"Πειραματική:         {mtbf_exp:.4f} ώρες (σ = {mtbf_std:.4f})")
-        print(f"Θεωρητική (MTTF/DC): {effective_mttf:.4f} ώρες")
-        print(f"Σχετικό σφάλμα:      {abs(mtbf_exp - effective_mttf) / effective_mttf * 100:.2f}%")
+        print(f"Experimental:        {mtbf_exp:.4f} hours (σ = {mtbf_std:.4f})")
+        print(f"Theoretical (MTTF/DC): {effective_mttf:.4f} hours")
+        print(f"Relative error:      {abs(mtbf_exp - effective_mttf) / effective_mttf * 100:.2f}%")
     else:
         mtbf_exp = float('inf')
         mtbf_std = 0
@@ -79,7 +79,7 @@ def run_monte_carlo_with_repair(component_name, mttf, duty_cycle, mttr, duration
     mut_std = mtbf_std
     print(f"\nMean Up Time:")
     if mut_exp != float('inf'):
-        print(f"Πειραματική: {mut_exp:.4f} ώρες (σ = {mut_std:.4f})")
+        print(f"Experimental: {mut_exp:.4f} hours (σ = {mut_std:.4f})")
     else:
         print("No failures detected")
     
@@ -88,10 +88,10 @@ def run_monte_carlo_with_repair(component_name, mttf, duty_cycle, mttr, duration
         mttr_exp = np.mean(all_repair_durations)
         mttr_std = np.std(all_repair_durations)
         print(f"\nMean Time To Repair:")
-        print(f"Θεωρητική: {mttr:.4f} ώρες")
+        print(f"Theoretical: {mttr:.4f} hours")
         if mttr_exp > 0:
-            print(f"Πειραματική: {mttr_exp:.4f} ώρες (σ = {mttr_std:.4f})")
-            print(f"Σχετικό σφάλμα: {abs(mttr_exp - mttr) / mttr * 100:.2f}%")
+            print(f"Experimental: {mttr_exp:.4f} hours (σ = {mttr_std:.4f})")
+            print(f"Relative error: {abs(mttr_exp - mttr) / mttr * 100:.2f}%")
         else:
             print("No failures detected")
     else:
@@ -111,9 +111,9 @@ def run_monte_carlo_with_repair(component_name, mttf, duty_cycle, mttr, duration
 
     availability_exp = total_up / total_time if total_time > 0 else 0
     print(f"\nAvailability:")
-    print(f"Πειραματική: A = {availability_exp:.6f} ({availability_exp * 100:.2f}%)")
-    print(f"Θεωρητική:   A = {availability_theo:.6f} ({availability_theo * 100:.2f}%)")
-    print(f"Σχετικό σφάλμα:  {abs(availability_exp - availability_theo) / availability_theo * 100:.2f}%")
+    print(f"Experimental: A = {availability_exp:.6f} ({availability_exp * 100:.2f}%)")
+    print(f"Theoretical:  A = {availability_theo:.6f} ({availability_theo * 100:.2f}%)")
+    print(f"Relative error:  {abs(availability_exp - availability_theo) / availability_theo * 100:.2f}%")
     
     # Average number of faults per simulation
     print(f"\nFault Statistics:")
@@ -210,20 +210,20 @@ def visualize_component_with_repair(results):
     fig = plt.figure(figsize=(14, 10))
     gs = fig.add_gridspec(3, 2, hspace=0.35, wspace=0.35)
     
-    # Δείγμα Προσομοίωσης
+    # Sample Simulation
     ax1 = fig.add_subplot(gs[0, :])
     time = results['sample_time']
     history = results['sample_history']
     
-    # Χρωματισμός ανάλογα με την κατάσταση
-    for state, color, label in [(2, 'green', 'Λειτουργικό'), (1, 'yellow', 'Μη Λειτουργικό (DC)'), (0, 'red', 'Επιδιόρθωση')]:
+    # Color according to state
+    for state, color, label in [(2, 'green', 'Operational'), (1, 'yellow', 'Non-Operational (DC)'), (0, 'red', 'Under Repair')]:
         mask = (history == state)
         if np.any(mask):
             ax1.fill_between(time, 0, 1, where=mask, color=color, alpha=0.6, label=label, step='mid')
     
-    ax1.set_xlabel('Χρόνος (ώρες)', fontsize=11)
-    ax1.set_ylabel('Κατάσταση', fontsize=11)
-    ax1.set_title(f'Δείγμα Προσομοίωσης - {comp_name}', fontsize=13, fontweight='bold')
+    ax1.set_xlabel('Time (hours)', fontsize=11)
+    ax1.set_ylabel('State', fontsize=11)
+    ax1.set_title(f'Sample Simulation - {comp_name}', fontsize=13, fontweight='bold')
     ax1.set_ylim([0, 1])
     ax1.set_yticks([])
     ax1.legend(loc='upper right')
@@ -239,11 +239,11 @@ def visualize_component_with_repair(results):
         x = np.linspace(0, max(results['all_up_times']), 100)
         if results['mtbf_exp'] != float('inf'):
             theoretical = (1/results['mtbf_exp']) * np.exp(-x/results['mtbf_exp'])
-            ax2.plot(x, theoretical, 'r-', linewidth=2, label='Θεωρητική Εκθετική')
+            ax2.plot(x, theoretical, 'r-', linewidth=2, label='Theoretical Exponential')
         
-        ax2.set_xlabel('Χρόνος Λειτουργίας (ώρες)', fontsize=10)
-        ax2.set_ylabel('Πυκνότητα Πιθανότητας', fontsize=10)
-        ax2.set_title('Κατανομή MTBF', fontsize=11, fontweight='bold')
+        ax2.set_xlabel('Operational Time (hours)', fontsize=10)
+        ax2.set_ylabel('Probability Density', fontsize=10)
+        ax2.set_title('MTBF Distribution', fontsize=11, fontweight='bold')
         ax2.legend()
         ax2.grid(True, alpha=0.3)
     
@@ -256,11 +256,11 @@ def visualize_component_with_repair(results):
         # Theoretical distribution
         x = np.linspace(0, max(results['all_repair_durations']), 100)
         theoretical = (1/results['mttr_theo']) * np.exp(-x/results['mttr_theo'])
-        ax3.plot(x, theoretical, 'b-', linewidth=2, label='Θεωρητική Εκθετική')
+        ax3.plot(x, theoretical, 'b-', linewidth=2, label='Theoretical Exponential')
         
-        ax3.set_xlabel('Χρόνος Επιδιόρθωσης (ώρες)', fontsize=10)
-        ax3.set_ylabel('Πυκνότητα Πιθανότητας', fontsize=10)
-        ax3.set_title('Κατανομή MTTR', fontsize=11, fontweight='bold')
+        ax3.set_xlabel('Repair Time (hours)', fontsize=10)
+        ax3.set_ylabel('Probability Density', fontsize=10)
+        ax3.set_title('MTTR Distribution', fontsize=11, fontweight='bold')
         ax3.legend()
         ax3.grid(True, alpha=0.3)
     
@@ -292,7 +292,7 @@ def visualize_component_with_repair(results):
         ax5.text(bar.get_x() + bar.get_width()/2., height, f'{val:.4f}\n({val*100:.2f}%)', ha='center', va='bottom', fontsize=9, fontweight='bold')
     
     ax5.set_ylabel('Availability', fontsize=10)
-    ax5.set_title('Σύγκριση Διαθεσιμότητας', fontsize=11, fontweight='bold')
+    ax5.set_title('Availability Comparison', fontsize=11, fontweight='bold')
     ax5.set_ylim([0, 1.1])
     ax5.grid(True, alpha=0.3, axis='y')
     
@@ -311,11 +311,11 @@ def create_summary_comparison(all_results):
     mtbf_exp = [r['mtbf_exp'] if r['mtbf_exp'] != float('inf') else 0 for r in all_results]
     mtbf_theo = [r['mtbf_theo'] if r['mtbf_theo'] != float('inf') else 0 for r in all_results]
     
-    ax1.bar(x - width/2, mtbf_exp, width, label='Πειραματική', alpha=0.8)
-    ax1.bar(x + width/2, mtbf_theo, width, label='Θεωρητική', alpha=0.8)
-    ax1.set_xlabel('Εξάρτημα', fontsize=11)
-    ax1.set_ylabel('MTBF (ώρες)', fontsize=11)
-    ax1.set_title('Σύγκριση MTBF', fontsize=12, fontweight='bold')
+    ax1.bar(x - width/2, mtbf_exp, width, label='Experimental', alpha=0.8)
+    ax1.bar(x + width/2, mtbf_theo, width, label='Theoretical', alpha=0.8)
+    ax1.set_xlabel('Component', fontsize=11)
+    ax1.set_ylabel('MTBF (hours)', fontsize=11)
+    ax1.set_title('MTBF Comparison', fontsize=12, fontweight='bold')
     ax1.set_xticks(x)
     ax1.set_xticklabels(components)
     ax1.legend()
@@ -326,11 +326,11 @@ def create_summary_comparison(all_results):
     mttr_exp = [r['mttr_exp'] for r in all_results]
     mttr_theo = [r['mttr_theo'] for r in all_results]
     
-    ax2.bar(x - width/2, mttr_exp, width, label='Πειραματική', alpha=0.8, color='coral')
-    ax2.bar(x + width/2, mttr_theo, width, label='Θεωρητική', alpha=0.8, color='lightcoral')
-    ax2.set_xlabel('Εξάρτημα', fontsize=11)
-    ax2.set_ylabel('MTTR (ώρες)', fontsize=11)
-    ax2.set_title('Σύγκριση MTTR', fontsize=12, fontweight='bold')
+    ax2.bar(x - width/2, mttr_exp, width, label='Experimental', alpha=0.8, color='coral')
+    ax2.bar(x + width/2, mttr_theo, width, label='Theoretical', alpha=0.8, color='lightcoral')
+    ax2.set_xlabel('Component', fontsize=11)
+    ax2.set_ylabel('MTTR (hours)', fontsize=11)
+    ax2.set_title('MTTR Comparison', fontsize=12, fontweight='bold')
     ax2.set_xticks(x)
     ax2.set_xticklabels(components)
     ax2.legend()

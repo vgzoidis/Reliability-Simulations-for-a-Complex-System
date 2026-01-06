@@ -52,7 +52,7 @@ def print_header(title: str, char: str = "=", width: int = 70):
     print(f"{char * width}")
 
 def print_simulation_info():
-    print_header("ΠΑΡΑΜΕΤΡΟΙ ΠΡΟΣΟΜΟΙΩΣΗΣ")
+    print_header("SIMULATION PARAMETERS")
     print(f"Tc: {Tc} hours")
     print(f"Ts: {Ts} hours")
     print(f"dt: {DT} hours")
