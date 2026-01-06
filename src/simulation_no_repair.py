@@ -1,8 +1,3 @@
-"""
-Reliability Simulation WITHOUT Repair (MTTR not considered)
-Calculates: λ (failure rate), R (reliability), MTTF
-For both individual components and the system.
-"""
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
@@ -12,12 +7,8 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from config import COMPONENTS_DATA, Tc, Ts, DT, N_SIMS, ensure_output_dir, print_header
 
-# =============================================================================
 # SIMULATION CORE
-# =============================================================================
-
 def simulate_component(mttf, duty_cycle, duration, dt):
-    """Simulate a single component without repair. Returns failure time or None."""
     lam = 1.0 / mttf
     time_axis = np.arange(0, duration, dt)
     status_history = []
@@ -41,9 +32,7 @@ def simulate_component(mttf, duty_cycle, duration, dt):
     
     return time_axis, np.array(status_history), failure_time
 
-
 def simulate_system(components_db, duration, dt):
-    """Simulate the system without repair. Returns system failure time or None."""
     time_axis = np.arange(0, duration, dt)
     comp_states = {name: [] for name in components_db}
     failed = {name: False for name in components_db}
@@ -84,13 +73,8 @@ def simulate_system(components_db, duration, dt):
     
     return time_axis, np.array(system_history), comp_states, system_failure_time
 
-
-# =============================================================================
-# COMPONENT ANALYSIS (Part 1)
-# =============================================================================
-
+# ANALYSIS
 def run_component_analysis(components_db, duration, dt, n_sims):
-    """Run Monte Carlo simulations for each component, calculate λ and R(Tc)."""
     print_header("COMPONENT RELIABILITY ANALYSIS (No Repair)", "=", 70)
     results = []
     
@@ -122,9 +106,7 @@ def run_component_analysis(components_db, duration, dt, n_sims):
     
     return results
 
-
 def run_system_analysis(components_db, duration, dt, n_sims):
-    """Run Monte Carlo simulations for the system, calculate λ, R(Ts), MTTF."""
     print_header("SYSTEM RELIABILITY ANALYSIS (No Repair)", "=", 70)
     
     failure_times = []
@@ -164,13 +146,8 @@ def run_system_analysis(components_db, duration, dt, n_sims):
         'failure_times': failure_times, 'sample_data': sample_data
     }
 
-
-# =============================================================================
 # VISUALIZATION
-# =============================================================================
-
 def create_component_plots(results, output_dir):
-    """Create summary plots for component reliability."""
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
     
     components = [r['component'] for r in results]
@@ -205,18 +182,14 @@ def create_component_plots(results, output_dir):
     plt.savefig(os.path.join(output_dir, 'component_reliability.png'), dpi=150)
     plt.close()
 
-
 def create_system_plots(results, output_dir):
-    """Create summary plots for system reliability."""
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
     
     # Reliability bar chart
     ax1 = axes[0]
-    bars = ax1.bar(['Experimental', 'Theoretical'], [results['R_exp'], results['R_theo']], 
-                   color=['steelblue', 'coral'], alpha=0.8, edgecolor='black')
+    bars = ax1.bar(['Experimental', 'Theoretical'], [results['R_exp'], results['R_theo']], color=['steelblue', 'coral'], alpha=0.8, edgecolor='black')
     for bar in bars:
-        ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height(), 
-                f'{bar.get_height():.4f}', ha='center', va='bottom', fontweight='bold')
+        ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height(), f'{bar.get_height():.4f}', ha='center', va='bottom', fontweight='bold')
     ax1.set_ylabel(f'Reliability R(Ts)')
     ax1.set_title(f'System Reliability at Ts={Ts}h')
     ax1.set_ylim([0, 1.1 * max(results['R_exp'], results['R_theo'])])
@@ -226,8 +199,7 @@ def create_system_plots(results, output_dir):
     ax2 = axes[1]
     if results['failure_times']:
         ax2.hist(results['failure_times'], bins=30, alpha=0.7, color='steelblue', edgecolor='black')
-        ax2.axvline(results['MTTF_exp'], color='red', linestyle='--', linewidth=2, 
-                   label=f'MTTF={results["MTTF_exp"]:.2f}h')
+        ax2.axvline(results['MTTF_exp'], color='red', linestyle='--', linewidth=2, label=f'MTTF={results["MTTF_exp"]:.2f}h')
         ax2.legend()
     ax2.set_xlabel('System Failure Time (hours)')
     ax2.set_ylabel('Frequency')
@@ -238,9 +210,7 @@ def create_system_plots(results, output_dir):
     plt.savefig(os.path.join(output_dir, 'system_reliability.png'), dpi=150)
     plt.close()
 
-
 def create_timeline_plot(sample_data, output_dir):
-    """Create timeline showing system and component states."""
     time, sys_hist, comp_states = sample_data
     
     fig, axes = plt.subplots(2, 1, figsize=(14, 8), height_ratios=[1, 2])
@@ -286,19 +256,14 @@ def create_timeline_plot(sample_data, output_dir):
     plt.savefig(os.path.join(output_dir, 'timeline_no_repair.png'), dpi=150)
     plt.close()
 
-
-# =============================================================================
-# MAIN
-# =============================================================================
-
 if __name__ == "__main__":
     OUTPUT_DIR = ensure_output_dir('no_repair')
     
-    # Part 1: Component analysis
+    # Component analysis
     comp_results = run_component_analysis(COMPONENTS_DATA, Tc, DT, N_SIMS)
     create_component_plots(comp_results, OUTPUT_DIR)
     
-    # Part 2: System analysis
+    # System analysis
     sys_results = run_system_analysis(COMPONENTS_DATA, Ts, DT, N_SIMS)
     create_system_plots(sys_results, OUTPUT_DIR)
     create_timeline_plot(sys_results['sample_data'], OUTPUT_DIR)

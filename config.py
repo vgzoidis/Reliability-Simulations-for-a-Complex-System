@@ -21,11 +21,6 @@ N_SIMS = 1000    # Number of simulations
 OUTPUT_DIRS = {
     'no_repair': 'results/no_repair',
     'with_repair': 'results/with_repair',
-    # Legacy support
-    'part1': 'results/part1_component_failures',
-    'part2': 'results/part2_system_reliability',
-    'part3': 'results/part3_component_repair',
-    'part4': 'results/part4_system_repair',
 }
 
 # System structure
