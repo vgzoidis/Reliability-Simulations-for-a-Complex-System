@@ -84,28 +84,45 @@ def simulate_component(mttf, duty_cycle, mttr, duration, dt):
     return time_axis, np.array(status_history), up_times, repair_durations
 
 def simulate_system(components_db, duration, dt):
-    time_axis = np.arange(0, duration, dt)
-    comp_histories = {name: [] for name in components_db}
-    current = {name: 2 for name in components_db}
-    repair_timers = {name: 0.0 for name in components_db}
+    """
+    Simulate system with repair: C1 → [C2||C3||C4] → [C5||C6] → C7
     
+    Tracks:
+    - Component states (0=repair, 1=non-op DC, 2=operational)
+    - System operational periods (MTBF)
+    - System downtime periods (MTTR)
+    """
+    time_axis = np.arange(0, duration, dt)
+    
+    # Initialize component states
+    current = {name: 2 for name in components_db}          # Current state
+    repair_timers = {name: 0.0 for name in components_db}  # Repair timers
+    comp_histories = {name: [] for name in components_db}  # State history
+    
+    # System state tracking
     system_history = []
-    up_times, down_times = [], []
+    up_times = []   # Operational periods
+    down_times = [] # Downtime periods
     current_state = None
     period_start = 0.0
     
+    # Simulation loop
     for t in time_axis:
+        # Update each component's state
         for name, specs in components_db.items():
             if current[name] == 0:  # Under repair
                 repair_timers[name] -= dt
                 if repair_timers[name] <= 0:
-                    current[name] = 2
+                    current[name] = 2  # Repair completed
                 comp_histories[name].append(0)
             else:
+                # Check duty cycle
                 is_active = np.random.rand() < specs['DC']
                 if is_active:
+                    # Check for failure
                     lam = 1.0 / specs['MTTF']
                     if np.random.rand() < (1 - np.exp(-lam * dt)):
+                        # Failure! Start repair
                         current[name] = 0
                         repair_timers[name] = np.random.exponential(specs['MTTR'])
                         comp_histories[name].append(0)
@@ -166,6 +183,9 @@ def run_component_analysis(components_db, duration, dt, n_sims):
             total_down += np.sum(hist == 0) * dt
         
         # Calculate metrics
+        # MTBF = Mean Time Between Failures (average operational period)
+        # MTTR = Mean Time To Repair (average repair duration)
+        # A = Availability = MTBF / (MTBF + MTTR)
         MTBF_exp = np.mean(all_up_times) if all_up_times else float('inf')
         MTBF_theo = mttf / dc if dc > 0 else float('inf')
         MTTR_exp = np.mean(all_repair_times) if all_repair_times else 0

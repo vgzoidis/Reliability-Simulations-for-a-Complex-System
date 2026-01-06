@@ -151,19 +151,19 @@ def run_component_analysis(components_db, duration, dt, n_sims):
             if ft is not None:
                 failure_times.append(ft)
         
-        # --- Υπολογισμός Μετρικών ---
+        # --- Calculate Metrics ---
         
-        # 1. Αξιοπιστία R(Tc): Ποσοστό προσομοιώσεων χωρίς αστοχία
+        # 1. Reliability R(Tc): Percentage of simulations without failure
         failures = len(failure_times)
         R_exp = (n_sims - failures) / n_sims
         
-        # Θεωρητική αξιοπιστία: R(t) = e^(-λ·DC·t)
+        # Theoretical reliability: R(t) = e^(-λ·DC·t)
         R_theo = np.exp(-dc * duration / mttf)
         
-        # 2. Ρυθμός αστοχίας λ
-        lam_theo = 1.0 / mttf  # Θεωρητικό: λ = 1/MTTF
+        # 2. Failure rate λ
+        lam_theo = 1.0 / mttf  # Theoretical: λ = 1/MTTF
         
-        # Πειραματικό: από τη σχέση R(t) = e^(-λ·DC·t) → λ = -ln(R)/(DC·t)
+        # Experimental: from relation R(t) = e^(-λ·DC·t) → λ = -ln(R)/(DC·t)
         lam_exp = -np.log(R_exp) / (dc * duration) if R_exp > 0 and dc > 0 else 0
         
         print(f"\n{comp_name}: MTTF={mttf}h, DC={dc}")
