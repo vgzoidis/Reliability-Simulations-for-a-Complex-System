@@ -7,47 +7,88 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from config import COMPONENTS_DATA, Tc, Ts, DT, N_SIMS, ensure_output_dir, print_header
 
+# =============================================================================
 # SIMULATION CORE
+# =============================================================================
+
 def simulate_component(mttf, duty_cycle, duration, dt):
+    """
+    Simulate a component without repair until first failure.
+    
+    Uses exponential distribution for failure time:
+    - Failure rate: λ = 1/MTTF
+    - Failure probability in time dt: P(fail) = 1 - e^(-λ·dt)
+    
+    Returns the failure time or None if it didn't fail.
+    """
+    # Calculate failure rate λ from MTTF
     lam = 1.0 / mttf
+    
+    # Create time axis with step dt
     time_axis = np.arange(0, duration, dt)
     status_history = []
     failure_time = None
     failed = False
     
+    # Simulation loop for each time step
     for t in time_axis:
         if failed:
+            # If already failed, remains in failed state (-1)
             status_history.append(-1)
         else:
+            # Check if component should be active (duty cycle)
+            # Random number [0,1) < DC → active
             is_active = np.random.rand() < duty_cycle
+            
             if is_active:
+                # Calculate failure probability in interval dt
+                # From exponential distribution: P(fail in dt) = 1 - e^(-λ·dt)
                 if np.random.rand() < (1 - np.exp(-lam * dt)):
+                    # Failure! Record time and change state
                     failed = True
                     failure_time = t
-                    status_history.append(-1)
+                    status_history.append(-1)  # State: Failed
                 else:
-                    status_history.append(1)
+                    status_history.append(1)   # State: Operational
             else:
+                # Non-operational due to duty cycle (not failure)
                 status_history.append(0)
     
     return time_axis, np.array(status_history), failure_time
 
 def simulate_system(components_db, duration, dt):
+    """
+    Simulate system with structure: C1 → [C2||C3||C4] → [C5||C6] → C7
+    
+    System logic:
+    - Series connection: All blocks must be operational
+    - Parallel blocks: At least one component must be operational
+    
+    Returns the system failure time or None.
+    """
     time_axis = np.arange(0, duration, dt)
+    
+    # Initialize states of all components
     comp_states = {name: [] for name in components_db}
-    failed = {name: False for name in components_db}
-    current = {name: 1 for name in components_db}
+    failed = {name: False for name in components_db}  # Which have failed
+    current = {name: 1 for name in components_db}     # Current state
+    
     system_history = []
     system_failure_time = None
     system_failed = False
     
+    # Simulation loop for each time step
     for t in time_axis:
+        # Update state of each component
         for name, specs in components_db.items():
             if failed[name]:
+                # If failed, remains in failed state
                 current[name] = -1
             else:
+                # Check duty cycle
                 is_active = np.random.rand() < specs['DC']
                 if is_active:
+                    # Calculate failure probability: P = 1 - e^(-λ·dt)
                     lam = 1.0 / specs['MTTF']
                     if np.random.rand() < (1 - np.exp(-lam * dt)):
                         failed[name] = True
@@ -55,43 +96,74 @@ def simulate_system(components_db, duration, dt):
                     else:
                         current[name] = 1
                 else:
-                    current[name] = 0
+                    current[name] = 0  # Non-operational (DC)
+            
+            # Record state
             comp_states[name].append(current[name])
         
-        # System logic: C1 -> [C2||C3||C4] -> [C5||C6] -> C7
+        # Check system state based on structure
+        # Series connection: C1 → [C2||C3||C4] → [C5||C6] → C7
+        
+        # C1 and C7 must be operational (not failed)
         c1_ok = current['C1'] != -1
         c7_ok = current['C7'] != -1
+        
+        # Block 2 (parallel): At least one of C2, C3, C4 must be operational
         block2_ok = current['C2'] != -1 or current['C3'] != -1 or current['C4'] != -1
+        
+        # Block 3 (parallel): At least one of C5, C6 must be operational
         block3_ok = current['C5'] != -1 or current['C6'] != -1
         
+        # System operational if all blocks are operational (series connection)
         system_ok = c1_ok and block2_ok and block3_ok and c7_ok
         system_history.append(1 if system_ok else 0)
         
+        # Record time of first system failure
         if not system_ok and not system_failed:
             system_failure_time = t
             system_failed = True
     
     return time_axis, np.array(system_history), comp_states, system_failure_time
 
+# =============================================================================
 # ANALYSIS
+# =============================================================================
+
 def run_component_analysis(components_db, duration, dt, n_sims):
+    """
+    Run Monte Carlo simulations for each component.
+    
+    Calculates:
+    - Reliability R(Tc): Probability of not failing at time Tc
+    - Failure rate λ: Frequency of failures per unit time
+    """
     print_header("COMPONENT RELIABILITY ANALYSIS (No Repair)", "=", 70)
     results = []
     
+    # Analyze each component
     for comp_name, specs in components_db.items():
         mttf, dc = specs['MTTF'], specs['DC']
         failure_times = []
         
+        # Monte Carlo: Execute N independent simulations
         for i in range(n_sims):
             _, _, ft = simulate_component(mttf, dc, duration, dt)
             if ft is not None:
                 failure_times.append(ft)
         
-        # Calculate metrics
+        # --- Υπολογισμός Μετρικών ---
+        
+        # 1. Αξιοπιστία R(Tc): Ποσοστό προσομοιώσεων χωρίς αστοχία
         failures = len(failure_times)
         R_exp = (n_sims - failures) / n_sims
+        
+        # Θεωρητική αξιοπιστία: R(t) = e^(-λ·DC·t)
         R_theo = np.exp(-dc * duration / mttf)
-        lam_theo = 1.0 / mttf
+        
+        # 2. Ρυθμός αστοχίας λ
+        lam_theo = 1.0 / mttf  # Θεωρητικό: λ = 1/MTTF
+        
+        # Πειραματικό: από τη σχέση R(t) = e^(-λ·DC·t) → λ = -ln(R)/(DC·t)
         lam_exp = -np.log(R_exp) / (dc * duration) if R_exp > 0 and dc > 0 else 0
         
         print(f"\n{comp_name}: MTTF={mttf}h, DC={dc}")

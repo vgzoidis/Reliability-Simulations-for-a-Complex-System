@@ -7,47 +7,78 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from config import COMPONENTS_DATA, Tc, DT, N_SIMS, ensure_output_dir, print_header
 
-# CORE
+# =============================================================================
+# SIMULATION CORE
+# =============================================================================
+
 def simulate_component(mttf, duty_cycle, mttr, duration, dt):
+    """
+    Simulate component with repair capability.
+    
+    States:
+    - 2: Operational
+    - 1: Non-operational due to duty cycle
+    - 0: Under repair
+    
+    Model:
+    - Failures: Exponential distribution with rate λ = 1/MTTF
+    - Repair: Exponential distribution with mean time MTTR
+    
+    Returns all operational and repair periods.
+    """
+    # Failure rate λ
     lam = 1.0 / mttf
+    
     time_axis = np.arange(0, duration, dt)
     status_history = []
-    repair_timer = 0.0
-    current_status = 2  # 2=operational, 1=non-op (DC), 0=under repair
+    repair_timer = 0.0              # Remaining repair time
+    current_status = 2              # Initial state: Operational
     
-    up_times = []
-    repair_durations = []
-    current_up_start = 0.0
+    up_times = []                   # Durations of operational periods (for MTBF)
+    repair_durations = []           # Repair durations (for MTTR)
+    current_up_start = 0.0          # Start of current operational period
     
+    # Simulation loop
     for t in time_axis:
         if current_status == 0:  # Under repair
+            # Decrease repair time
             repair_timer -= dt
             if repair_timer <= 0:
+                # Repair completed → Return to operational state
                 current_status = 2
-                current_up_start = t
+                current_up_start = t  # New operational period starts
             status_history.append(0)
         else:
+            # Check duty cycle
             is_active = np.random.rand() < duty_cycle
             if is_active:
+                # Check for failure: P(fail) = 1 - e^(-λ·dt)
                 if np.random.rand() < (1 - np.exp(-lam * dt)):
-                    # Failure occurred
+                    # Failure!
+                    # Record operational duration (from last repair)
                     up_times.append(t - current_up_start)
+                    
+                    # Generate repair time from exponential distribution
                     repair_duration = np.random.exponential(mttr)
                     repair_durations.append(repair_duration)
                     repair_timer = repair_duration
-                    current_status = 0
+                    
+                    current_status = 0  # Transition to repair
                     status_history.append(0)
                 else:
-                    current_status = 2
+                    current_status = 2  # Continue operating
                     status_history.append(2)
             else:
+                # Non-operational due to duty cycle (not failure)
                 current_status = 1
                 status_history.append(1)
     
-    # Capture final up period
+    # Record final operational period
     if current_status in [1, 2] and len(up_times) == 0:
+        # Never failed → all time is operational
         up_times.append(duration)
     elif current_status in [1, 2]:
+        # Record last operational period
         up_times.append(duration - current_up_start)
     
     return time_axis, np.array(status_history), up_times, repair_durations
