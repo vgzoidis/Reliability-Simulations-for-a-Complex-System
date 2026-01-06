@@ -2,28 +2,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy import stats
 import os
+import sys
 
-# --- Δημιουργία φακέλου για αποτελέσματα ---
-OUTPUT_DIR = "part1_component_failures"
-if not os.path.exists(OUTPUT_DIR):
-    os.makedirs(OUTPUT_DIR)
-
-# --- Παράμετροι Εξαρτημάτων (Από Πίνακα 2) ---
-components_data = {
-    'C1': {'MTTF': 30, 'DC': 0.3, 'MTTR': 12},
-    'C2': {'MTTF': 24, 'DC': 1.0, 'MTTR': 12},
-    'C3': {'MTTF': 23, 'DC': 1.0, 'MTTR': 12},
-    'C4': {'MTTF': 24, 'DC': 1.0, 'MTTR': 10},
-    'C5': {'MTTF': 27, 'DC': 1.0, 'MTTR': 10},
-    'C6': {'MTTF': 28, 'DC': 1.0, 'MTTR': 8},
-    'C7': {'MTTF': 33, 'DC': 0.4, 'MTTR': 12},
-}
-
-# --- Παράμετροι Προσομοίωσης ---
-Tc = 30.0        # Χρόνος μελέτης (ώρες)
-DT = 0.01        # Χρονικό βήμα (ώρες)
-N_SIMS = 1000    # Αριθμός προσομοιώσεων Monte Carlo
-
+# Add config parameters
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from config import (
+    COMPONENTS_DATA as components_data,
+    Tc, DT, N_SIMS,
+    ensure_output_dir)
 
 def simulate_component_failures(component_name, mttf, duty_cycle, duration, dt):
     """
@@ -76,7 +62,6 @@ def simulate_component_failures(component_name, mttf, duty_cycle, duration, dt):
                 status_history.append(0)
     
     return time_axis, np.array(status_history), failure_time
-
 
 def run_monte_carlo_simulations(component_name, mttf, duty_cycle, duration, dt, n_sims):
     """
@@ -165,7 +150,6 @@ def run_monte_carlo_simulations(component_name, mttf, duty_cycle, duration, dt, 
         'mean_failure_time': mean_failure_time
     }
 
-
 def visualize_single_simulation(component_name, mttf, duty_cycle, duration, dt):
     """
     Δημιουργεί γράφημα για μία προσομοίωση
@@ -202,7 +186,6 @@ def visualize_single_simulation(component_name, mttf, duty_cycle, duration, dt):
     output_path = os.path.join(OUTPUT_DIR, f'{component_name}_simulation_example.png')
     plt.savefig(output_path, dpi=150)
     print(f"\nΓράφημα αποθηκεύτηκε: {output_path}")
-
 
 def create_summary_plots(results_list):
     """
@@ -265,9 +248,9 @@ def create_summary_plots(results_list):
     plt.savefig(output_path, dpi=150)
     print(f"\nΣυγκεντρωτικό γράφημα αποθηκεύτηκε: {output_path}")
 
-
-# --- ΚΥΡΙΑ ΕΚΤΕΛΕΣΗ ---
 if __name__ == "__main__":
+    OUTPUT_DIR = ensure_output_dir('part1')
+
     print("="*60)
     print("ΠΡΟΣΟΜΟΙΩΣΗ ΒΛΑΒΩΝ ΕΞΑΡΤΗΜΑΤΩΝ - ΕΡΩΤΗΜΑ 4.2 (Μέρος 1)")
     print("="*60)

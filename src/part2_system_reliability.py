@@ -2,28 +2,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy import stats
 import os
+import sys
 
-# --- Δημιουργία φακέλου για αποτελέσματα ---
-OUTPUT_DIR = "part2_system_reliability"
-if not os.path.exists(OUTPUT_DIR):
-    os.makedirs(OUTPUT_DIR)
-
-# --- Παράμετροι Εξαρτημάτων (Από Πίνακα 2) ---
-components_data = {
-    'C1': {'MTTF': 30, 'DC': 0.3, 'MTTR': 12},
-    'C2': {'MTTF': 24, 'DC': 1.0, 'MTTR': 12},
-    'C3': {'MTTF': 23, 'DC': 1.0, 'MTTR': 12},
-    'C4': {'MTTF': 24, 'DC': 1.0, 'MTTR': 10},
-    'C5': {'MTTF': 27, 'DC': 1.0, 'MTTR': 10},
-    'C6': {'MTTF': 28, 'DC': 1.0, 'MTTR': 8},
-    'C7': {'MTTF': 33, 'DC': 0.4, 'MTTR': 12},
-}
-
-# --- Παράμετροι Προσομοίωσης ---
-Ts = 30.0        # Χρόνος μελέτης συστήματος (ώρες)
-DT = 0.01        # Χρονικό βήμα (ώρες)
-N_SIMS = 1000    # Αριθμός προσομοιώσεων Monte Carlo
-
+# Add config parameters
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from config import (
+    COMPONENTS_DATA as components_data,
+    Ts, DT, N_SIMS,
+    ensure_output_dir)
 
 def simulate_system_reliability(components_db, duration, dt):
     """
@@ -104,7 +90,6 @@ def simulate_system_reliability(components_db, duration, dt):
             system_failed = True
     
     return time_axis, np.array(system_history), component_states, system_failure_time
-
 
 def run_system_monte_carlo(components_db, duration, dt, n_sims):
     """
@@ -254,7 +239,6 @@ def run_system_monte_carlo(components_db, duration, dt, n_sims):
         'sample_components': sample_components
     }
 
-
 def visualize_system_simulation(results):
     """
     Δημιουργεί γραφήματα για την ανάλυση του συστήματος
@@ -358,7 +342,6 @@ def visualize_system_simulation(results):
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     print(f"✓ Γράφημα αποθηκεύτηκε: {output_path}")
 
-
 def create_summary_table(results):
     """
     Δημιουργεί συγκεντρωτικό πίνακα αποτελεσμάτων
@@ -380,9 +363,9 @@ def create_summary_table(results):
     print(f"{'Αριθμός βλαβών':<30} {results['failures_count']}/{results['total_sims']:<14} {'N/A':<20}")
     print("="*70)
 
-
-# --- ΚΥΡΙΑ ΕΚΤΕΛΕΣΗ ---
 if __name__ == "__main__":
+    OUTPUT_DIR = ensure_output_dir('part2')
+
     print("\n" + "="*70)
     print("ΑΝΑΛΥΣΗ ΑΞΙΟΠΙΣΤΙΑΣ ΣΥΣΤΗΜΑΤΟΣ - ΕΡΩΤΗΜΑ 4.2 (Μέρος 2)")
     print("="*70)
