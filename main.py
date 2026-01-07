@@ -5,13 +5,13 @@ import subprocess
 from config import print_header, print_simulation_info
 
 def run_no_repair():
-    print_header("SIMULATION WITHOUT REPAIR (λ, R, MTTF)", "=", 70)
+    print_header("SIMULATION WITHOUT REPAIR", "-", 70)
     result = subprocess.run([sys.executable, "src/simulation_no_repair.py"], capture_output=False, text=True)
     if result.returncode != 0:
         raise Exception(f"Simulation failed with return code {result.returncode}")
 
 def run_with_repair():
-    print_header("SIMULATION WITH REPAIR (MTBF, MUT, MTTR, A)", "=", 70)
+    print_header("SIMULATION WITH REPAIR", "-", 70)
     result = subprocess.run([sys.executable, "src/simulation_with_repair.py"], capture_output=False, text=True)
     if result.returncode != 0:
         raise Exception(f"Simulation failed with return code {result.returncode}")

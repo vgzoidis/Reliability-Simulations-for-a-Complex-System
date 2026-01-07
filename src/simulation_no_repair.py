@@ -7,48 +7,6 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from config import COMPONENTS_DATA, Tc, Ts, DT, N_SIMS, ensure_output_dir, print_header
 
-# =============================================================================
-# SIMULATION FUNCTIONS
-# =============================================================================
-
-# Function to simulate a component until first failure (without repair)
-# Returns the failure time or "None" if it didn't fail
-def simulate_component(mttf, duty_cycle, duration, dt):
-    # Calculate failure rate λ from MTTF (λ = 1/MTTF)
-    lam = 1.0 / mttf
-    
-    # Create time axis with step dt
-    time_axis = np.arange(0, duration, dt)
-    status_history = []
-    failure_time = None
-    failed = False
-    
-    # Simulation loop for each time step
-    for t in time_axis:
-        if failed:
-            # If already failed, remains in failed state (-1)
-            status_history.append(-1)
-        else:
-            # Check if component should be active (duty cycle)
-            # Random number [0,1) < DC → active
-            is_active = np.random.rand() < duty_cycle
-            
-            if is_active:
-                # Calculate failure probability in interval dt
-                # From exponential distribution: P(fail in dt) = 1 - e^(-λ·dt)
-                if np.random.rand() < (1 - np.exp(-lam * dt)):
-                    # Failure! Record time and change state
-                    failed = True
-                    failure_time = t
-                    status_history.append(-1)  # State: Failed
-                else:
-                    status_history.append(1)   # State: Operational
-            else:
-                # Non-operational due to duty cycle (not failure)
-                status_history.append(0)
-    
-    return time_axis, np.array(status_history), failure_time
-
 # Function to simulate the system
 # Returns the system failure time or "None"
 def simulate_system(components_db, duration, dt):
@@ -56,6 +14,7 @@ def simulate_system(components_db, duration, dt):
     # Initialize states of all components
     time_axis = np.arange(0, duration, dt)
     comp_states = {name: [] for name in components_db}
+    comp_failure_times = {name: None for name in components_db}  # Track component failure times
     failed = {name: False for name in components_db}  # Which have failed
     current = {name: 1 for name in components_db}     # Current state
     system_history = []
@@ -78,6 +37,7 @@ def simulate_system(components_db, duration, dt):
                     if np.random.rand() < (1 - np.exp(-lam * dt)):
                         failed[name] = True
                         current[name] = -1
+                        comp_failure_times[name] = t  # Record component failure time
                     else:
                         current[name] = 1
                 else:
@@ -109,110 +69,119 @@ def simulate_system(components_db, duration, dt):
             system_failure_time = t
             system_failed = True
     
-    return time_axis, np.array(system_history), comp_states, system_failure_time
+    return time_axis, np.array(system_history), comp_states, system_failure_time, comp_failure_times
 
-# =============================================================================
-# ANALYSIS AND PLOTTING FUNCTIONS
-# =============================================================================
-
-# Function to analyze each component's reliability
-# Calculates R(Tc) and λ Theoretical and Experimental for each component
-def run_component_analysis(components_db, duration, dt, n_sims):
-
-    print_header("COMPONENT RELIABILITY ANALYSIS (No Repair)", "=", 70)
-    results = []
+# Combined function to analyze both component and system reliability
+# Extracts component metrics over full Tc duration and system metrics over first Ts duration
+def run_combined_analysis(components_db, Tc, Ts, dt, n_sims):
+    print(f"\nRunning Combined Analysis (Tc={Tc}h, Ts={Ts}h)...")
+    
+    # Storage for component failure times (for component analysis at Tc)
+    comp_failure_times_Tc = {name: [] for name in components_db}
+    
+    # Storage for system failure times (for system analysis at Ts)
+    system_failure_times_Ts = []
+    
+    # Sample data for visualization
+    sample_data = None
+    
+    # Time step count for Ts cutoff
+    Ts_steps = int(Ts / dt)
+    
+    # Execute N independent simulations for full Tc duration
+    for i in range(n_sims):
+        time_axis, sys_hist, comp_states, sys_ft, comp_ft = simulate_system(components_db, Tc, dt)
+        
+        # Progress tracking
+        if (i + 1) % 100 == 0:
+            print(f"\r(Completed {i+1}/{n_sims} simulations)", end='', flush=True)
+        
+        # Store sample data from first simulation
+        if i == 0:
+            # Store full data for component timeline, but truncate system data to Ts for system plot
+            sample_data = (time_axis[:Ts_steps], sys_hist[:Ts_steps], 
+                          {name: states[:Ts_steps] for name, states in comp_states.items()})
+        
+        # Collect component failure times (for Tc analysis)
+        for name, ft in comp_ft.items():
+            if ft is not None:
+                comp_failure_times_Tc[name].append(ft)
+        
+        # Collect system failure time only if it occurred within Ts
+        if sys_ft is not None and sys_ft < Ts:
+            system_failure_times_Ts.append(sys_ft)
+    
+    # --- Calculate Component Metrics ---
+    print(f"\n\nCOMPONENT RELIABILITY:")
+    comp_results = []
     
     for comp_name, specs in components_db.items():
         mttf, dc = specs['MTTF'], specs['DC']
-        failure_times = []
+        failure_times = comp_failure_times_Tc[comp_name]
         
-        # Execute N independent simulations
-        for i in range(n_sims):
-            _, _, ft = simulate_component(mttf, dc, duration, dt)
-            if ft is not None:
-                failure_times.append(ft)
-        
-        # --- Calculate Metrics ---
-
         # Experimental Reliability R(Tc): Percentage of simulations without failure
         failures = len(failure_times)
         R_exp = (n_sims - failures) / n_sims
         
         # Theoretical Reliability: R(t) = e^(-λ·DC·t)
-        R_theo = np.exp(-dc * duration / mttf)
+        R_theo = np.exp(-dc * Tc / mttf)
         
         # Theoretical Failure rate: λ = 1/MTTF
         lam_theo = 1.0 / mttf
         
         # Experimental Failure rate: R(t) = e^(-λ·DC·t) → λ = -ln(R)/(DC·t)
-        lam_exp = -np.log(R_exp) / (dc * duration) if R_exp > 0 and dc > 0 else 0
+        lam_exp = -np.log(R_exp) / (dc * Tc) if R_exp > 0 and dc > 0 else 0
         
         print(f"\n{comp_name}: MTTF={mttf}h, DC={dc}")
-        print(f"  R(Tc={duration}h): Exp={R_exp:.4f}, Theo={R_theo:.4f}, Error={abs(R_exp-R_theo)/R_theo*100:.1f}%")
-        print(f"  λ: Exp={lam_exp:.6f}, Theo={lam_theo:.6f} failures/h, Error={abs(lam_exp-lam_theo)/lam_theo*100:.1f}%")
+        print(f"  R: \tExp={R_exp:.4f}, \tTheo={R_theo:.4f}, \tError={abs(R_exp-R_theo)/R_theo*100:.1f}%")
+        print(f"  λ: \tExp={lam_exp:.4f}, \tTheo={lam_theo:.4f}, \tError={abs(lam_exp-lam_theo)/lam_theo*100:.1f}%")
         
-        results.append({
+        comp_results.append({
             'component': comp_name, 'R_exp': R_exp, 'R_theo': R_theo,
             'lambda_exp': lam_exp, 'lambda_theo': lam_theo,
             'failures': failures, 'failure_times': failure_times
         })
     
-    return results
-
-# Function to analyze system reliability
-# Calculates R(Ts), λ, and MTTF (Theoretical and Experimental) for the system
-def run_system_analysis(components_db, duration, dt, n_sims):
-    print_header("SYSTEM RELIABILITY ANALYSIS (No Repair)", "=", 70)
+    # --- Calculate System Metrics ---
+    print(f"\nSYSTEM RELIABILITY:")
     
-    failure_times = []
-    sample_data = None
-    
-    # Execute N independent system simulations
-    for i in range(n_sims):
-        time_axis, sys_hist, comp_states, ft = simulate_system(components_db, duration, dt)
-        if i == 0:
-            sample_data = (time_axis, sys_hist, comp_states)
-        if ft is not None:
-            failure_times.append(ft)
-        if (i + 1) % 200 == 0:
-            print(f"Completed {i+1}/{n_sims} simulations...")
-    
-    # --- Calculate Metrics ---
-    
-    # Experimental Reliability R(Ts): Percentage of simulations without failure
-    failures = len(failure_times)
+    # Experimental Reliability R(Ts): Percentage of simulations without failure within Ts
+    failures = len(system_failure_times_Ts)
     R_exp = (n_sims - failures) / n_sims
     
     # Experimental MTTF: Mean of all failure times
-    MTTF_exp = np.mean(failure_times) if failure_times else float('inf')
+    MTTF_exp = np.mean(system_failure_times_Ts) if system_failure_times_Ts else float('inf')
     
     # Experimental Failure rate: λ = -ln(R)/t
-    lam_exp = -np.log(R_exp) / duration if R_exp > 0 else float('inf')
+    lam_exp = -np.log(R_exp) / Ts if R_exp > 0 else float('inf')
     
-    #Theoretical System Reliability
+    # Theoretical System Reliability
     def R_comp(mttf, dc, t):
         return np.exp(-dc * t / mttf)
-    R_C = {name: R_comp(s['MTTF'], s['DC'], duration) for name, s in components_db.items()}
+    R_C = {name: R_comp(s['MTTF'], s['DC'], Ts) for name, s in components_db.items()}
     R_block2 = 1 - (1-R_C['C2']) * (1-R_C['C3']) * (1-R_C['C4'])
     R_block3 = 1 - (1-R_C['C5']) * (1-R_C['C6'])
     R_theo = R_C['C1'] * R_block2 * R_block3 * R_C['C7']
     
     # Theoretical Failure rate: λ = -ln(R)/t
-    lam_theo = -np.log(R_theo) / duration if R_theo > 0 else float('inf')
+    lam_theo = -np.log(R_theo) / Ts if R_theo > 0 else float('inf')
     
     # Theoretical MTTF: MTTF = 1/λ
     MTTF_theo = 1 / lam_theo if lam_theo != float('inf') and lam_theo > 0 else float('inf')
     
-    print(f"\nSystem R(Ts={duration}h): Exp={R_exp:.4f}, Theo={R_theo:.4f}, Error={abs(R_exp-R_theo)/R_theo*100:.1f}%")
-    print(f"System λ: Exp={lam_exp:.6f}, Theo={lam_theo:.6f} failures/h, Error={abs(lam_exp-lam_theo)/lam_theo*100:.1f}%")
-    print(f"System MTTF: Exp={MTTF_exp:.2f}h, Theo={MTTF_theo:.2f}h, Error={abs(MTTF_exp-MTTF_theo)/MTTF_theo*100:.1f}%" if MTTF_exp != float('inf') else f"System MTTF: Theo={MTTF_theo:.2f}h (No failures observed)")
+    print(f"\nSystem R: \tExp={R_exp:.4f}, \tTheo={R_theo:.4f}, \tError={abs(R_exp-R_theo)/R_theo*100:.1f}%")
+    print(f"System λ: \tExp={lam_exp:.4f}, \tTheo={lam_theo:.4f}, \tError={abs(lam_exp-lam_theo)/lam_theo*100:.1f}%")
+    print(f"System MTTF: \tExp={MTTF_exp:.2f}h, \tTheo={MTTF_theo:.2f}h, \tError={abs(MTTF_exp-MTTF_theo)/MTTF_theo*100:.1f}%" if MTTF_exp != float('inf') else f"System MTTF: Theo={MTTF_theo:.2f}h (No failures observed)")
     
-    return {
+    sys_results = {
         'R_exp': R_exp, 'R_theo': R_theo, 
         'MTTF_exp': MTTF_exp, 'MTTF_theo': MTTF_theo,
         'lambda_exp': lam_exp, 'lambda_theo': lam_theo,
-        'failure_times': failure_times, 'sample_data': sample_data
+        'failure_times': system_failure_times_Ts, 'sample_data': sample_data
     }
+    
+    return comp_results, sys_results
+
 
 # VISUALIZATION
 def create_component_plots(results, output_dir):
@@ -272,7 +241,7 @@ def create_system_plots(results, output_dir):
         ax2.legend()
     ax2.set_xlabel('System Failure Time (hours)')
     ax2.set_ylabel('Frequency')
-    ax2.set_title('System Failure Time Distribution')
+    ax2.set_title('System Failure Time Distribution (up to)')
     ax2.grid(True, alpha=0.3)
     
     plt.tight_layout()
@@ -328,12 +297,11 @@ def create_timeline_plot(sample_data, output_dir):
 if __name__ == "__main__":
     OUTPUT_DIR = ensure_output_dir('no_repair')
     
-    # Component analysis
-    comp_results = run_component_analysis(COMPONENTS_DATA, Tc, DT, N_SIMS)
-    create_component_plots(comp_results, OUTPUT_DIR)
+    # Combined analysis - runs simulations once for Tc and extracts both component and system metrics
+    comp_results, sys_results = run_combined_analysis(COMPONENTS_DATA, Tc, Ts, DT, N_SIMS)
     
-    # System analysis
-    sys_results = run_system_analysis(COMPONENTS_DATA, Ts, DT, N_SIMS)
+    # Create plots
+    create_component_plots(comp_results, OUTPUT_DIR)
     create_system_plots(sys_results, OUTPUT_DIR)
     create_timeline_plot(sys_results['sample_data'], OUTPUT_DIR)
     

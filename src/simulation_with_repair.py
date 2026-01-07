@@ -167,7 +167,7 @@ def simulate_system(components_db, duration, dt):
 
 # ANALYSIS
 def run_component_analysis(components_db, duration, dt, n_sims):
-    print_header("COMPONENT ANALYSIS WITH REPAIR", "=", 70)
+    print(f"\nCOMPONENT RELIABILITY:")
     results = []
     
     for comp_name, specs in components_db.items():
@@ -209,7 +209,7 @@ def run_component_analysis(components_db, duration, dt, n_sims):
     return results
 
 def run_system_analysis(components_db, duration, dt, n_sims):
-    print_header("SYSTEM ANALYSIS WITH REPAIR", "=", 70)
+    print(f"\nSYSTEM RELIABILITY:")
     
     all_up_times, all_down_times = [], []
     total_up, total_down = 0, 0
@@ -224,8 +224,8 @@ def run_system_analysis(components_db, duration, dt, n_sims):
         total_up += np.sum(sys_hist == 1) * dt
         total_down += np.sum(sys_hist == 0) * dt
         
-        if (i + 1) % 200 == 0:
-            print(f"Completed {i+1}/{n_sims} simulations...")
+        #if (i + 1) % 200 == 0:
+            #print(f"Completed {i+1}/{n_sims} simulations...")
     
     MTBF = np.mean(all_up_times) if all_up_times else float('inf')
     MUT = MTBF
