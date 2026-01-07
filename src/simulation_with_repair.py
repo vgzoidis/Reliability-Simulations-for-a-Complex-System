@@ -13,12 +13,11 @@ from config import COMPONENTS_DATA, Tc, DT, N_SIMS, ensure_output_dir, print_hea
 # -1 = Failed (waiting for repair)
 # -2 = Under repair
 
+# Function to simulate the system with repair
+# When a component fails, it undergoes repair for a random time tr ~ Exp(1/MTTR).
+# After repair, the component returns to operational state.
 def simulate_system_with_repair(components_db, duration, dt):
-    """
-    Simulate the system with repair capability.
-    When a component fails, it undergoes repair for a random time tr ~ Exp(1/MTTR).
-    After repair, the component returns to operational state.
-    """
+    
     time_axis = np.arange(0, duration, dt)
     n_steps = len(time_axis)
     
@@ -91,7 +90,6 @@ def simulate_system_with_repair(components_db, duration, dt):
             comp_states[name].append(current[name])
         
         # Check system state based on RBD: C1 → [C2||C3||C4] → [C5||C6] → C7
-        # A component is considered "working" if it's not failed/under repair
         c1_ok = current['C1'] >= 0
         c7_ok = current['C7'] >= 0
         block2_ok = current['C2'] >= 0 or current['C3'] >= 0 or current['C4'] >= 0
@@ -156,12 +154,10 @@ def simulate_system_with_repair(components_db, duration, dt):
     
     return time_axis, np.array(system_history), comp_states, comp_metrics, sys_metrics
 
-
+# Function to analyze the components and system reliability
+# Extracts metrics for MTBF, MUT, MTTR, and Availability
 def run_availability_analysis(components_db, Tc, dt, n_sims):
-    """
-    Run multiple simulations and calculate MTBF, MUT, MTTR, and Availability
-    for both components and the system.
-    """
+
     print(f"\nRunning Availability Analysis with Repair (Tc={Tc}h)...")
     
     # Aggregate metrics across simulations
@@ -229,13 +225,6 @@ def run_availability_analysis(components_db, Tc, dt, n_sims):
         n_failures = comp_all_failures[comp_name]
         total_time = n_sims * Tc
         
-        # Experimental MTBF: Total operational time / number of failures
-        # Including time to first failure as per the note
-        if n_failures > 0:
-            MTBF_exp = total_time / n_failures
-        else:
-            MTBF_exp = float('inf')
-        
         # Experimental MUT: Average of all up times
         if comp_all_up_times[comp_name]:
             MUT_exp = np.mean(comp_all_up_times[comp_name])
@@ -248,13 +237,14 @@ def run_availability_analysis(components_db, Tc, dt, n_sims):
         else:
             MTTR_exp = 0
         
+        # Experimental MTBF: MTBF = MUT + MTTR (mean time between failures)
+        MTBF_exp = MUT_exp + MTTR_exp
+        
         # Experimental Availability: Total up time / Total time
         A_exp = comp_total_up[comp_name] / total_time
         
         # Theoretical values
-        # For exponential distributions with duty cycle:
-        # Effective MTTF considering DC: MTTF_eff = MTTF / DC
-        MTTF_eff = mttf_theo / dc if dc > 0 else float('inf')
+        MTTF_eff = mttf_theo / dc if dc > 0 else float('inf') # Effective MTTF considering DC: MTTF_eff = MTTF / DC
         MTBF_theo = MTTF_eff + mttr_theo  # MTBF = MTTF + MTTR
         MUT_theo = MTTF_eff  # Mean Up Time = MTTF (effective)
         MTTR_theo_val = mttr_theo
@@ -282,12 +272,6 @@ def run_availability_analysis(components_db, Tc, dt, n_sims):
     
     total_time = n_sims * Tc
     
-    # Experimental system MTBF
-    if sys_all_failures > 0:
-        sys_MTBF_exp = total_time / sys_all_failures
-    else:
-        sys_MTBF_exp = float('inf')
-    
     # Experimental system MUT
     if sys_all_up_times:
         sys_MUT_exp = np.mean(sys_all_up_times)
@@ -300,11 +284,13 @@ def run_availability_analysis(components_db, Tc, dt, n_sims):
     else:
         sys_MTTR_exp = 0
     
+    # Experimental system MTBF: MTBF = MUT + MTTR (mean time between failures)
+    sys_MTBF_exp = sys_MUT_exp + sys_MTTR_exp
+    
     # Experimental system Availability
     sys_A_exp = sys_total_up / total_time
     
     # Theoretical system availability (approximate using component availabilities)
-    # A_i = MTTF_eff_i / (MTTF_eff_i + MTTR_i)
     def comp_availability(mttf, dc, mttr):
         mttf_eff = mttf / dc if dc > 0 else float('inf')
         return mttf_eff / (mttf_eff + mttr)
@@ -313,15 +299,9 @@ def run_availability_analysis(components_db, Tc, dt, n_sims):
            for name, s in components_db.items()}
     
     # System availability based on RBD structure
-    # Parallel: A_parallel = 1 - (1-A1)(1-A2)...
-    # Series: A_series = A1 * A2 * ...
     A_block2 = 1 - (1 - A_C['C2']) * (1 - A_C['C3']) * (1 - A_C['C4'])
     A_block3 = 1 - (1 - A_C['C5']) * (1 - A_C['C6'])
     sys_A_theo = A_C['C1'] * A_block2 * A_block3 * A_C['C7']
-    
-    # Theoretical system MTBF, MUT, MTTR calculations
-    # Using the relationship: A = MUT / MTBF = MUT / (MUT + MTTR)
-    # And system failure rate approximation based on RBD structure
     
     # Component effective failure rates (considering duty cycle)
     def comp_failure_rate(mttf, dc):
@@ -334,31 +314,21 @@ def run_availability_analysis(components_db, Tc, dt, n_sims):
     mttf_eff = {name: comp_mttf_eff(s['MTTF'], s['DC']) for name, s in components_db.items()}
     mttr_comp = {name: s['MTTR'] for name, s in components_db.items()}
     
-    # For series components, system failure rate ≈ sum of component failure rates
-    # For parallel blocks, we need to calculate equivalent failure rate
-    
-    # Parallel block failure rate: λ_parallel ≈ λ1*λ2*...*λn * (MTTR1 + MTTR2 + ... + MTTRn)^(n-1) for 2-out-of-n
-    # Simplified approximation for parallel blocks using availability
-    # λ_block ≈ (1 - A_block) * (sum of component repair rates)
-    
     # Series component failure rates
     lambda_C1 = 1.0 / mttf_eff['C1']
     lambda_C7 = 1.0 / mttf_eff['C7']
     
     # Parallel block 2 (C2, C3, C4): All must fail for block to fail
-    # Approximate failure rate for 3 parallel components
     lambda_C2 = 1.0 / mttf_eff['C2']
     lambda_C3 = 1.0 / mttf_eff['C3']
     lambda_C4 = 1.0 / mttf_eff['C4']
     mu_C2, mu_C3, mu_C4 = 1.0/mttr_comp['C2'], 1.0/mttr_comp['C3'], 1.0/mttr_comp['C4']
-    # λ_block2 ≈ λ2*λ3*λ4 / (μ2*μ3 + μ2*μ4 + μ3*μ4) (for 3 parallel)
     lambda_block2 = (lambda_C2 * lambda_C3 * lambda_C4) / (mu_C2*mu_C3 + mu_C2*mu_C4 + mu_C3*mu_C4)
     
     # Parallel block 3 (C5, C6): Both must fail for block to fail
     lambda_C5 = 1.0 / mttf_eff['C5']
     lambda_C6 = 1.0 / mttf_eff['C6']
     mu_C5, mu_C6 = 1.0/mttr_comp['C5'], 1.0/mttr_comp['C6']
-    # λ_block3 ≈ λ5*λ6 / (μ5 + μ6) (for 2 parallel)
     lambda_block3 = (lambda_C5 * lambda_C6) / (mu_C5 + mu_C6)
     
     # System failure rate (series connection of all blocks)
@@ -367,8 +337,7 @@ def run_availability_analysis(components_db, Tc, dt, n_sims):
     # Theoretical system MUT = 1 / λ_sys
     sys_MUT_theo = 1.0 / lambda_sys_theo if lambda_sys_theo > 0 else float('inf')
     
-    # Theoretical system MTTR using A = MUT / (MUT + MTTR)
-    # MTTR = MUT * (1 - A) / A
+    # Theoretical system MTTR using MTTR = MUT * (1 - A) / A
     sys_MTTR_theo = sys_MUT_theo * (1 - sys_A_theo) / sys_A_theo if sys_A_theo > 0 else 0
     
     # Theoretical system MTBF = MUT + MTTR
@@ -534,25 +503,51 @@ def create_system_availability_plots(results, output_dir):
 def create_timeline_plot_with_repair(sample_data, output_dir):
     """Create timeline plot showing component and system states including repair."""
     time, sys_hist, comp_states = sample_data
+    dt = time[1] - time[0] if len(time) > 1 else 0.01
     
     fig, axes = plt.subplots(2, 1, figsize=(14, 8), height_ratios=[1, 2])
     
-    # System timeline
+    # Helper function to get contiguous segments
+    def get_segments(states_arr, target_state):
+        segments = []
+        in_segment = False
+        start = 0
+        for i, state in enumerate(states_arr):
+            if state == target_state and not in_segment:
+                start = time[i]
+                in_segment = True
+            elif state != target_state and in_segment:
+                segments.append((start, time[i] - start))
+                in_segment = False
+        if in_segment:
+            # Extend to end of time + dt to cover last interval
+            segments.append((start, time[-1] - start + dt))
+        return segments
+    
+    # System timeline using broken_barh
     ax1 = axes[0]
     sys_hist_arr = np.array(sys_hist)
-    ax1.fill_between(time, 0, 1, where=(sys_hist_arr == 1), 
-                     color='green', alpha=0.6, label='Operational')
-    ax1.fill_between(time, 0, 1, where=(sys_hist_arr == 0), 
-                     color='red', alpha=0.6, label='Failed')
+    
+    # Draw operational segments (green)
+    op_segments = get_segments(sys_hist_arr, 1)
+    if op_segments:
+        ax1.broken_barh(op_segments, (0, 1), facecolors='green', alpha=0.6, label='Operational')
+    
+    # Draw failed segments (red)
+    fail_segments = get_segments(sys_hist_arr, 0)
+    if fail_segments:
+        ax1.broken_barh(fail_segments, (0, 1), facecolors='red', alpha=0.6, label='Failed')
+    
     ax1.set_ylabel('System State')
     ax1.set_title('Sample Simulation - System State Over Time (With Repair)')
-    ax1.set_yticks([0, 1])
+    ax1.set_yticks([0.25, 0.75])
     ax1.set_yticklabels(['Failed', 'OK'])
+    ax1.set_ylim(0, 1)
+    ax1.set_xlim(time[0], time[-1] + dt)
     ax1.legend(loc='upper right')
     ax1.grid(True, alpha=0.3, axis='x')
-    ax1.set_xlim([0, time[-1]])
     
-    # Component timeline with repair states
+    # Component timeline with repair states using broken_barh
     ax2 = axes[1]
     # State colors: 1=Operational(green), 0=Non-Op DC(yellow), -1=Failed(red), -2=Under Repair(blue)
     colors = {1: 'green', 0: 'yellow', -1: 'red', -2: 'blue'}
@@ -561,18 +556,17 @@ def create_timeline_plot_with_repair(sample_data, output_dir):
     for i, (name, states) in enumerate(comp_states.items()):
         states_arr = np.array(states)
         for state, color in colors.items():
-            mask = states_arr == state
-            if np.any(mask):
-                ax2.fill_between(time, i - 0.4, i + 0.4, where=mask, 
-                               color=color, alpha=0.6)
+            segments = get_segments(states_arr, state)
+            if segments:
+                ax2.broken_barh(segments, (i - 0.4, 0.8), facecolors=color, alpha=0.6)
     
     ax2.set_xlabel('Time (hours)')
     ax2.set_ylabel('Component')
     ax2.set_title('Component States Over Time (With Repair)')
     ax2.set_yticks(range(len(components)))
     ax2.set_yticklabels(components)
+    ax2.set_xlim(time[0], time[-1] + dt)
     ax2.grid(True, alpha=0.3, axis='x')
-    ax2.set_xlim([0, time[-1]])
     
     legend_elements = [
         Patch(facecolor='green', alpha=0.6, label='Operational'),
@@ -589,8 +583,6 @@ def create_timeline_plot_with_repair(sample_data, output_dir):
 
 if __name__ == "__main__":
     OUTPUT_DIR = ensure_output_dir('with_repair')
-    
-    print_header("SIMULATION WITH REPAIR", "=", 70)
     
     # Run availability analysis with repair
     comp_results, sys_results = run_availability_analysis(COMPONENTS_DATA, Tc, DT, N_SIMS)

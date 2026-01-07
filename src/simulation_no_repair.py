@@ -7,6 +7,11 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from config import COMPONENTS_DATA, Tc, Ts, DT, N_SIMS, ensure_output_dir, print_header
 
+# Component States:
+#  1 = Operational (active)
+#  0 = Non-operational (due to duty cycle)
+# -1 = Failed (waiting for repair)
+
 # Function to simulate the system
 # Returns the system failure time or "None"
 def simulate_system(components_db, duration, dt):
@@ -234,7 +239,7 @@ def create_system_plots(results, output_dir):
         ax2.legend()
     ax2.set_xlabel('System Failure Time (hours)')
     ax2.set_ylabel('Frequency')
-    ax2.set_title('System Failure Time Distribution (up to)')
+    ax2.set_title(f'System Failure Time Distribution (up to Ts={Ts}h)')
     ax2.grid(True, alpha=0.3)
     
     plt.tight_layout()
@@ -243,21 +248,54 @@ def create_system_plots(results, output_dir):
 
 def create_timeline_plot(sample_data, output_dir):
     time, sys_hist, comp_states = sample_data
+    dt = time[1] - time[0] if len(time) > 1 else 0.01
     
     fig, axes = plt.subplots(2, 1, figsize=(14, 8), height_ratios=[1, 2])
     
-    # System timeline
+    # Helper function to get contiguous segments
+    def get_segments(states_arr, target_state):
+        segments = []
+        in_segment = False
+        start = 0
+        for i, state in enumerate(states_arr):
+            if state == target_state and not in_segment:
+                start = time[i]
+                in_segment = True
+            elif state != target_state and in_segment:
+                segments.append((start, time[i] - start))
+                in_segment = False
+        if in_segment:
+            # Extend to end of time + dt to cover last interval
+            segments.append((start, time[-1] - start + dt))
+        return segments
+    
+    # System timeline using broken_barh
     ax1 = axes[0]
-    ax1.fill_between(time, 0, sys_hist, where=(sys_hist==1), color='green', alpha=0.6, label='Operational')
-    ax1.fill_between(time, 0, sys_hist, where=(sys_hist==0), color='red', alpha=0.6, label='Failed')
+    sys_arr = np.array(sys_hist)
+    
+    # Draw operational segments (green)
+    op_segments = get_segments(sys_arr, 1)
+    if op_segments:
+        ax1.broken_barh(op_segments, (0, 1), facecolors='green', alpha=0.6, label='Operational')
+    
+    # Draw failed segments (red)
+    fail_segments = get_segments(sys_arr, 0)
+    if fail_segments:
+        ax1.broken_barh(fail_segments, (0, 1), facecolors='red', alpha=0.6, label='Failed')
+    
     ax1.set_ylabel('System State')
     ax1.set_title('Sample Simulation - System State Over Time')
-    ax1.set_yticks([0, 1])
+    ax1.set_yticks([0.5])
+    ax1.set_yticklabels([''])
+    ax1.set_ylim(0, 1)
+    ax1.set_xlim(time[0], time[-1] + dt)
+    # Create y-axis labels on left side
+    ax1.set_yticks([0.25, 0.75])
     ax1.set_yticklabels(['Failed', 'OK'])
     ax1.legend(loc='upper right')
     ax1.grid(True, alpha=0.3, axis='x')
     
-    # Component timeline
+    # Component timeline using broken_barh
     ax2 = axes[1]
     colors = {1: 'green', 0: 'yellow', -1: 'red'}
     components = list(comp_states.keys())
@@ -265,15 +303,16 @@ def create_timeline_plot(sample_data, output_dir):
     for i, (name, states) in enumerate(comp_states.items()):
         states_arr = np.array(states)
         for state, color in colors.items():
-            mask = states_arr == state
-            if np.any(mask):
-                ax2.fill_between(time, i-0.4, i+0.4, where=mask, color=color, alpha=0.6)
+            segments = get_segments(states_arr, state)
+            if segments:
+                ax2.broken_barh(segments, (i - 0.4, 0.8), facecolors=color, alpha=0.6)
     
     ax2.set_xlabel('Time (hours)')
     ax2.set_ylabel('Component')
     ax2.set_title('Component States Over Time')
     ax2.set_yticks(range(len(components)))
     ax2.set_yticklabels(components)
+    ax2.set_xlim(time[0], time[-1] + dt)
     ax2.grid(True, alpha=0.3, axis='x')
     
     legend_elements = [
