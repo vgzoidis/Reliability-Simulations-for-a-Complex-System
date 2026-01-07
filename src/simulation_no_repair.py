@@ -71,21 +71,14 @@ def simulate_system(components_db, duration, dt):
     
     return time_axis, np.array(system_history), comp_states, system_failure_time, comp_failure_times
 
-# Combined function to analyze both component and system reliability
+# Function to analyze both component and system reliability
 # Extracts component metrics over full Tc duration and system metrics over first Ts duration
 def run_combined_analysis(components_db, Tc, Ts, dt, n_sims):
     print(f"\nRunning Combined Analysis (Tc={Tc}h, Ts={Ts}h)...")
     
-    # Storage for component failure times (for component analysis at Tc)
     comp_failure_times_Tc = {name: [] for name in components_db}
-    
-    # Storage for system failure times (for system analysis at Ts)
     system_failure_times_Ts = []
-    
-    # Sample data for visualization
     sample_data = None
-    
-    # Time step count for Ts cutoff
     Ts_steps = int(Ts / dt)
     
     # Execute N independent simulations for full Tc duration
@@ -169,9 +162,9 @@ def run_combined_analysis(components_db, Tc, Ts, dt, n_sims):
     # Theoretical MTTF: MTTF = 1/λ
     MTTF_theo = 1 / lam_theo if lam_theo != float('inf') and lam_theo > 0 else float('inf')
     
-    print(f"\nSystem R: \tExp={R_exp:.4f}, \tTheo={R_theo:.4f}, \tError={abs(R_exp-R_theo)/R_theo*100:.1f}%")
-    print(f"System λ: \tExp={lam_exp:.4f}, \tTheo={lam_theo:.4f}, \tError={abs(lam_exp-lam_theo)/lam_theo*100:.1f}%")
-    print(f"System MTTF: \tExp={MTTF_exp:.2f}h, \tTheo={MTTF_theo:.2f}h, \tError={abs(MTTF_exp-MTTF_theo)/MTTF_theo*100:.1f}%" if MTTF_exp != float('inf') else f"System MTTF: Theo={MTTF_theo:.2f}h (No failures observed)")
+    print(f"  R: \tExp={R_exp:.4f}, \tTheo={R_theo:.4f}, \tError={abs(R_exp-R_theo)/R_theo*100:.1f}%")
+    print(f"  λ: \tExp={lam_exp:.4f}, \tTheo={lam_theo:.4f}, \tError={abs(lam_exp-lam_theo)/lam_theo*100:.1f}%")
+    print(f"  MTTF: Exp={MTTF_exp:.2f}h, \tTheo={MTTF_theo:.2f}h, \tError={abs(MTTF_exp-MTTF_theo)/MTTF_theo*100:.1f}%" if MTTF_exp != float('inf') else f"System MTTF: Theo={MTTF_theo:.2f}h (No failures observed)")
     
     sys_results = {
         'R_exp': R_exp, 'R_theo': R_theo, 

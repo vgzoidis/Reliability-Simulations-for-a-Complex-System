@@ -1,419 +1,603 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.patches import Patch, Rectangle
+from matplotlib.patches import Patch
 import os
 import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from config import COMPONENTS_DATA, Tc, DT, N_SIMS, ensure_output_dir, print_header
 
-# =============================================================================
-# SIMULATION CORE
-# =============================================================================
+# Component States:
+#  1 = Operational (active)
+#  0 = Non-operational (due to duty cycle)
+# -1 = Failed (waiting for repair)
+# -2 = Under repair
 
-def simulate_component(mttf, duty_cycle, mttr, duration, dt):
+def simulate_system_with_repair(components_db, duration, dt):
     """
-    Simulate component with repair capability.
-    
-    States:
-    - 2: Operational
-    - 1: Non-operational due to duty cycle
-    - 0: Under repair
-    
-    Model:
-    - Failures: Exponential distribution with rate λ = 1/MTTF
-    - Repair: Exponential distribution with mean time MTTR
-    
-    Returns all operational and repair periods.
-    """
-    # Failure rate λ
-    lam = 1.0 / mttf
-    
-    time_axis = np.arange(0, duration, dt)
-    status_history = []
-    repair_timer = 0.0              # Remaining repair time
-    current_status = 2              # Initial state: Operational
-    
-    up_times = []                   # Durations of operational periods (for MTBF)
-    repair_durations = []           # Repair durations (for MTTR)
-    current_up_start = 0.0          # Start of current operational period
-    
-    # Simulation loop
-    for t in time_axis:
-        if current_status == 0:  # Under repair
-            # Decrease repair time
-            repair_timer -= dt
-            if repair_timer <= 0:
-                # Repair completed → Return to operational state
-                current_status = 2
-                current_up_start = t  # New operational period starts
-            status_history.append(0)
-        else:
-            # Check duty cycle
-            is_active = np.random.rand() < duty_cycle
-            if is_active:
-                # Check for failure: P(fail) = 1 - e^(-λ·dt)
-                if np.random.rand() < (1 - np.exp(-lam * dt)):
-                    # Failure!
-                    # Record operational duration (from last repair)
-                    up_times.append(t - current_up_start)
-                    
-                    # Generate repair time from exponential distribution
-                    repair_duration = np.random.exponential(mttr)
-                    repair_durations.append(repair_duration)
-                    repair_timer = repair_duration
-                    
-                    current_status = 0  # Transition to repair
-                    status_history.append(0)
-                else:
-                    current_status = 2  # Continue operating
-                    status_history.append(2)
-            else:
-                # Non-operational due to duty cycle (not failure)
-                current_status = 1
-                status_history.append(1)
-    
-    # Record final operational period
-    if current_status in [1, 2] and len(up_times) == 0:
-        # Never failed → all time is operational
-        up_times.append(duration)
-    elif current_status in [1, 2]:
-        # Record last operational period
-        up_times.append(duration - current_up_start)
-    
-    return time_axis, np.array(status_history), up_times, repair_durations
-
-def simulate_system(components_db, duration, dt):
-    """
-    Simulate system with repair: C1 → [C2||C3||C4] → [C5||C6] → C7
-    
-    Tracks:
-    - Component states (0=repair, 1=non-op DC, 2=operational)
-    - System operational periods (MTBF)
-    - System downtime periods (MTTR)
+    Simulate the system with repair capability.
+    When a component fails, it undergoes repair for a random time tr ~ Exp(1/MTTR).
+    After repair, the component returns to operational state.
     """
     time_axis = np.arange(0, duration, dt)
+    n_steps = len(time_axis)
     
-    # Initialize component states
-    current = {name: 2 for name in components_db}          # Current state
-    repair_timers = {name: 0.0 for name in components_db}  # Repair timers
-    comp_histories = {name: [] for name in components_db}  # State history
+    # Component tracking
+    comp_states = {name: [] for name in components_db}
+    current = {name: 1 for name in components_db}      # Current state
+    failed = {name: False for name in components_db}   # Is currently failed/under repair
+    repair_end_time = {name: None for name in components_db}  # When repair will complete
     
-    # System state tracking
+    # Component metrics tracking
+    comp_failure_times = {name: [] for name in components_db}  # List of all failure times
+    comp_repair_times = {name: [] for name in components_db}   # List of all repair durations
+    comp_up_times = {name: [] for name in components_db}       # List of all up times between failures
+    last_up_start = {name: 0 for name in components_db}        # When current up period started
+    
+    # System tracking
     system_history = []
-    up_times = []   # Operational periods
-    down_times = [] # Downtime periods
-    current_state = None
-    period_start = 0.0
+    system_failed = False
+    system_failure_times = []
+    system_repair_times = []
+    system_up_times = []
+    last_system_up_start = 0
+    system_down_start = None
     
     # Simulation loop
-    for t in time_axis:
-        # Update each component's state
+    for step, t in enumerate(time_axis):
+        # Update each component
         for name, specs in components_db.items():
-            if current[name] == 0:  # Under repair
-                repair_timers[name] -= dt
-                if repair_timers[name] <= 0:
-                    current[name] = 2  # Repair completed
-                comp_histories[name].append(0)
-            else:
-                # Check duty cycle
-                is_active = np.random.rand() < specs['DC']
-                if is_active:
-                    # Check for failure
-                    lam = 1.0 / specs['MTTF']
-                    if np.random.rand() < (1 - np.exp(-lam * dt)):
-                        # Failure! Start repair
-                        current[name] = 0
-                        repair_timers[name] = np.random.exponential(specs['MTTR'])
-                        comp_histories[name].append(0)
-                    else:
-                        current[name] = 2
-                        comp_histories[name].append(2)
-                else:
+            mttf = specs['MTTF']
+            mttr = specs['MTTR']
+            dc = specs['DC']
+            
+            if failed[name]:
+                # Component is failed or under repair
+                if repair_end_time[name] is not None and t >= repair_end_time[name]:
+                    # Repair complete - component returns to operational
+                    failed[name] = False
+                    repair_end_time[name] = None
                     current[name] = 1
-                    comp_histories[name].append(1)
-        
-        # System logic: C1 -> [C2||C3||C4] -> [C5||C6] -> C7
-        c1_ok = current['C1'] != 0
-        c7_ok = current['C7'] != 0
-        block2_ok = current['C2'] != 0 or current['C3'] != 0 or current['C4'] != 0
-        block3_ok = current['C5'] != 0 or current['C6'] != 0
-        
-        system_ok = 1 if (c1_ok and block2_ok and block3_ok and c7_ok) else 0
-        system_history.append(system_ok)
-        
-        # Track up/down periods
-        if current_state is None:
-            current_state = system_ok
-            period_start = t
-        elif current_state != system_ok:
-            period_duration = t - period_start
-            if current_state == 1:
-                up_times.append(period_duration)
+                    last_up_start[name] = t  # Start new up period
+                else:
+                    # Still under repair
+                    current[name] = -2
             else:
-                down_times.append(period_duration)
-            current_state = system_ok
-            period_start = t
+                # Component is operational - check for failure
+                is_active = np.random.rand() < dc
+                if is_active:
+                    # Calculate failure probability: P = 1 - e^(-λ·dt)
+                    lam = 1.0 / mttf
+                    if np.random.rand() < (1 - np.exp(-lam * dt)):
+                        # Failure occurred
+                        failed[name] = True
+                        current[name] = -1
+                        
+                        # Record up time (time since last repair or start)
+                        up_time = t - last_up_start[name]
+                        if up_time > 0:
+                            comp_up_times[name].append(up_time)
+                        
+                        # Generate repair time from exponential distribution
+                        tr = np.random.exponential(mttr)
+                        repair_end_time[name] = t + tr
+                        comp_failure_times[name].append(t)
+                        comp_repair_times[name].append(tr)
+                    else:
+                        current[name] = 1
+                else:
+                    current[name] = 0  # Non-operational (DC)
+            
+            comp_states[name].append(current[name])
+        
+        # Check system state based on RBD: C1 → [C2||C3||C4] → [C5||C6] → C7
+        # A component is considered "working" if it's not failed/under repair
+        c1_ok = current['C1'] >= 0
+        c7_ok = current['C7'] >= 0
+        block2_ok = current['C2'] >= 0 or current['C3'] >= 0 or current['C4'] >= 0
+        block3_ok = current['C5'] >= 0 or current['C6'] >= 0
+        
+        system_ok = c1_ok and block2_ok and block3_ok and c7_ok
+        system_history.append(1 if system_ok else 0)
+        
+        # Track system failures and repairs
+        if not system_ok and not system_failed:
+            # System just failed
+            system_failed = True
+            system_failure_times.append(t)
+            system_down_start = t
+            
+            # Record system up time
+            up_time = t - last_system_up_start
+            if up_time > 0:
+                system_up_times.append(up_time)
+                
+        elif system_ok and system_failed:
+            # System just recovered
+            system_failed = False
+            last_system_up_start = t
+            
+            # Record system repair time
+            if system_down_start is not None:
+                repair_time = t - system_down_start
+                system_repair_times.append(repair_time)
+                system_down_start = None
     
-    # Capture final period
-    final_duration = duration - period_start
-    if final_duration > 0:
-        if current_state == 1:
-            up_times.append(final_duration)
-        else:
-            down_times.append(final_duration)
+    # Handle final up period for components (if still operational at end)
+    for name in components_db:
+        if not failed[name]:
+            final_up_time = duration - last_up_start[name]
+            if final_up_time > 0:
+                comp_up_times[name].append(final_up_time)
     
-    return time_axis, np.array(system_history), comp_histories, up_times, down_times
+    # Handle final system up period
+    if not system_failed:
+        final_up_time = duration - last_system_up_start
+        if final_up_time > 0:
+            system_up_times.append(final_up_time)
+    
+    # Compile component metrics
+    comp_metrics = {}
+    for name in components_db:
+        comp_metrics[name] = {
+            'failure_times': comp_failure_times[name],
+            'repair_times': comp_repair_times[name],
+            'up_times': comp_up_times[name],
+            'n_failures': len(comp_failure_times[name])
+        }
+    
+    # Compile system metrics
+    sys_metrics = {
+        'failure_times': system_failure_times,
+        'repair_times': system_repair_times,
+        'up_times': system_up_times,
+        'n_failures': len(system_failure_times)
+    }
+    
+    return time_axis, np.array(system_history), comp_states, comp_metrics, sys_metrics
 
-# ANALYSIS
-def run_component_analysis(components_db, duration, dt, n_sims):
-    print(f"\nCOMPONENT RELIABILITY:")
-    results = []
-    
-    for comp_name, specs in components_db.items():
-        mttf, dc, mttr = specs['MTTF'], specs['DC'], specs['MTTR']
-        all_up_times, all_repair_times = [], []
-        total_up, total_down = 0, 0
-        
-        for i in range(n_sims):
-            _, hist, up_times, repair_times = simulate_component(mttf, dc, mttr, duration, dt)
-            all_up_times.extend(up_times)
-            all_repair_times.extend(repair_times)
-            total_up += np.sum((hist == 2) | (hist == 1)) * dt
-            total_down += np.sum(hist == 0) * dt
-        
-        # Calculate metrics
-        # MTBF = Mean Time Between Failures (average operational period)
-        # MTTR = Mean Time To Repair (average repair duration)
-        # A = Availability = MTBF / (MTBF + MTTR)
-        MTBF_exp = np.mean(all_up_times) if all_up_times else float('inf')
-        MTBF_theo = mttf / dc if dc > 0 else float('inf')
-        MTTR_exp = np.mean(all_repair_times) if all_repair_times else 0
-        A_exp = total_up / (n_sims * duration)
-        A_theo = MTBF_theo / (MTBF_theo + mttr) if MTBF_theo != float('inf') else 1.0
-        
-        print(f"\n{comp_name}: MTTF={mttf}h, DC={dc}, MTTR={mttr}h")
-        print(f"  MTBF: Exp={MTBF_exp:.2f}h, Theo={MTBF_theo:.2f}h")
-        print(f"  MUT:  {MTBF_exp:.2f}h")
-        print(f"  MTTR: Exp={MTTR_exp:.2f}h, Theo={mttr:.2f}h")
-        print(f"  A:    Exp={A_exp:.4f} ({A_exp*100:.2f}%), Theo={A_theo:.4f} ({A_theo*100:.2f}%)")
-        
-        results.append({
-            'component': comp_name,
-            'MTBF_exp': MTBF_exp, 'MTBF_theo': MTBF_theo,
-            'MUT': MTBF_exp,
-            'MTTR_exp': MTTR_exp, 'MTTR_theo': mttr,
-            'A_exp': A_exp, 'A_theo': A_theo
-        })
-    
-    return results
 
-def run_system_analysis(components_db, duration, dt, n_sims):
-    print(f"\nSYSTEM RELIABILITY:")
+def run_availability_analysis(components_db, Tc, dt, n_sims):
+    """
+    Run multiple simulations and calculate MTBF, MUT, MTTR, and Availability
+    for both components and the system.
+    """
+    print(f"\nRunning Availability Analysis with Repair (Tc={Tc}h)...")
     
-    all_up_times, all_down_times = [], []
-    total_up, total_down = 0, 0
+    # Aggregate metrics across simulations
+    comp_all_failures = {name: 0 for name in components_db}
+    comp_all_repair_times = {name: [] for name in components_db}
+    comp_all_up_times = {name: [] for name in components_db}
+    comp_total_up = {name: 0 for name in components_db}
+    comp_total_down = {name: 0 for name in components_db}
+    
+    sys_all_failures = 0
+    sys_all_repair_times = []
+    sys_all_up_times = []
+    sys_total_up = 0
+    sys_total_down = 0
+    
     sample_data = None
     
     for i in range(n_sims):
-        time_axis, sys_hist, comp_hist, up_times, down_times = simulate_system(components_db, duration, dt)
-        if i == 0:
-            sample_data = (time_axis, sys_hist, comp_hist)
-        all_up_times.extend(up_times)
-        all_down_times.extend(down_times)
-        total_up += np.sum(sys_hist == 1) * dt
-        total_down += np.sum(sys_hist == 0) * dt
+        time_axis, sys_hist, comp_states, comp_metrics, sys_metrics = simulate_system_with_repair(
+            components_db, Tc, dt
+        )
         
-        #if (i + 1) % 200 == 0:
-            #print(f"Completed {i+1}/{n_sims} simulations...")
+        if (i + 1) % 100 == 0:
+            print(f"\r(Completed {i+1}/{n_sims} simulations)", end='', flush=True)
+        
+        # Store sample from first simulation
+        if i == 0:
+            sample_data = (time_axis, sys_hist, comp_states)
+        
+        # Aggregate component metrics
+        for name in components_db:
+            comp_all_failures[name] += comp_metrics[name]['n_failures']
+            comp_all_repair_times[name].extend(comp_metrics[name]['repair_times'])
+            comp_all_up_times[name].extend(comp_metrics[name]['up_times'])
+            
+            # Calculate up/down time from states
+            states = np.array(comp_states[name])
+            up_steps = np.sum(states >= 0)
+            down_steps = np.sum(states < 0)
+            comp_total_up[name] += up_steps * dt
+            comp_total_down[name] += down_steps * dt
+        
+        # Aggregate system metrics
+        sys_all_failures += sys_metrics['n_failures']
+        sys_all_repair_times.extend(sys_metrics['repair_times'])
+        sys_all_up_times.extend(sys_metrics['up_times'])
+        
+        # Calculate system up/down time
+        sys_up_steps = np.sum(sys_hist == 1)
+        sys_down_steps = np.sum(sys_hist == 0)
+        sys_total_up += sys_up_steps * dt
+        sys_total_down += sys_down_steps * dt
     
-    MTBF = np.mean(all_up_times) if all_up_times else float('inf')
-    MUT = MTBF
-    MTTR = np.mean(all_down_times) if all_down_times else 0
-    A = total_up / (n_sims * duration)
+    print("\n")
     
-    print(f"\nSystem MTBF: {MTBF:.4f}h")
-    print(f"System MUT:  {MUT:.4f}h")
-    print(f"System MTTR: {MTTR:.4f}h")
-    print(f"System A:    {A:.4f} ({A*100:.2f}%)")
+    # Calculate component metrics
+    print_header("COMPONENT AVAILABILITY METRICS", "-", 70)
+    comp_results = []
     
-    return {
-        'MTBF': MTBF, 'MUT': MUT, 'MTTR': MTTR, 'A': A,
-        'all_up_times': all_up_times, 'all_down_times': all_down_times,
+    for comp_name, specs in components_db.items():
+        mttf_theo = specs['MTTF']
+        mttr_theo = specs['MTTR']
+        dc = specs['DC']
+        
+        n_failures = comp_all_failures[comp_name]
+        total_time = n_sims * Tc
+        
+        # Experimental MTBF: Total operational time / number of failures
+        # Including time to first failure as per the note
+        if n_failures > 0:
+            MTBF_exp = total_time / n_failures
+        else:
+            MTBF_exp = float('inf')
+        
+        # Experimental MUT: Average of all up times
+        if comp_all_up_times[comp_name]:
+            MUT_exp = np.mean(comp_all_up_times[comp_name])
+        else:
+            MUT_exp = Tc  # No failures means full up time
+        
+        # Experimental MTTR: Average of all repair times
+        if comp_all_repair_times[comp_name]:
+            MTTR_exp = np.mean(comp_all_repair_times[comp_name])
+        else:
+            MTTR_exp = 0
+        
+        # Experimental Availability: Total up time / Total time
+        A_exp = comp_total_up[comp_name] / total_time
+        
+        # Theoretical values
+        # For exponential distributions with duty cycle:
+        # Effective MTTF considering DC: MTTF_eff = MTTF / DC
+        MTTF_eff = mttf_theo / dc if dc > 0 else float('inf')
+        MTBF_theo = MTTF_eff + mttr_theo  # MTBF = MTTF + MTTR
+        MUT_theo = MTTF_eff  # Mean Up Time = MTTF (effective)
+        MTTR_theo_val = mttr_theo
+        
+        # Availability A = MTTF / (MTTF + MTTR) = MUT / MTBF
+        A_theo = MTTF_eff / (MTTF_eff + mttr_theo) if (MTTF_eff + mttr_theo) > 0 else 1.0
+        
+        print(f"\n{comp_name}: MTTF={mttf_theo}h, MTTR={mttr_theo}h, DC={dc}")
+        print(f"  MTBF:\t\tExp={MTBF_exp:.2f}h,\tTheo={MTBF_theo:.2f}h,\tError={abs(MTBF_exp-MTBF_theo)/MTBF_theo*100:.1f}%")
+        print(f"  MUT:\t\tExp={MUT_exp:.2f}h,\tTheo={MUT_theo:.2f}h,\tError={abs(MUT_exp-MUT_theo)/MUT_theo*100:.1f}%")
+        print(f"  MTTR:\t\tExp={MTTR_exp:.2f}h,\tTheo={MTTR_theo_val:.2f}h,\tError={abs(MTTR_exp-MTTR_theo_val)/MTTR_theo_val*100:.1f}%" if MTTR_theo_val > 0 else f"  MTTR:\t\tExp={MTTR_exp:.2f}h,\tTheo={MTTR_theo_val:.2f}h")
+        print(f"  A:\t\tExp={A_exp:.4f},\tTheo={A_theo:.4f},\tError={abs(A_exp-A_theo)/A_theo*100:.1f}%")
+        
+        comp_results.append({
+            'component': comp_name,
+            'MTBF_exp': MTBF_exp, 'MTBF_theo': MTBF_theo,
+            'MUT_exp': MUT_exp, 'MUT_theo': MUT_theo,
+            'MTTR_exp': MTTR_exp, 'MTTR_theo': MTTR_theo_val,
+            'A_exp': A_exp, 'A_theo': A_theo,
+            'n_failures': n_failures
+        })
+    
+    # Calculate system metrics
+    print_header("SYSTEM AVAILABILITY METRICS", "-", 70)
+    
+    total_time = n_sims * Tc
+    
+    # Experimental system MTBF
+    if sys_all_failures > 0:
+        sys_MTBF_exp = total_time / sys_all_failures
+    else:
+        sys_MTBF_exp = float('inf')
+    
+    # Experimental system MUT
+    if sys_all_up_times:
+        sys_MUT_exp = np.mean(sys_all_up_times)
+    else:
+        sys_MUT_exp = Tc
+    
+    # Experimental system MTTR
+    if sys_all_repair_times:
+        sys_MTTR_exp = np.mean(sys_all_repair_times)
+    else:
+        sys_MTTR_exp = 0
+    
+    # Experimental system Availability
+    sys_A_exp = sys_total_up / total_time
+    
+    # Theoretical system availability (approximate using component availabilities)
+    # A_i = MTTF_eff_i / (MTTF_eff_i + MTTR_i)
+    def comp_availability(mttf, dc, mttr):
+        mttf_eff = mttf / dc if dc > 0 else float('inf')
+        return mttf_eff / (mttf_eff + mttr)
+    
+    A_C = {name: comp_availability(s['MTTF'], s['DC'], s['MTTR']) 
+           for name, s in components_db.items()}
+    
+    # System availability based on RBD structure
+    # Parallel: A_parallel = 1 - (1-A1)(1-A2)...
+    # Series: A_series = A1 * A2 * ...
+    A_block2 = 1 - (1 - A_C['C2']) * (1 - A_C['C3']) * (1 - A_C['C4'])
+    A_block3 = 1 - (1 - A_C['C5']) * (1 - A_C['C6'])
+    sys_A_theo = A_C['C1'] * A_block2 * A_block3 * A_C['C7']
+    
+    # Theoretical system MTBF, MUT, MTTR calculations
+    # Using the relationship: A = MUT / MTBF = MUT / (MUT + MTTR)
+    # And system failure rate approximation based on RBD structure
+    
+    # Component effective failure rates (considering duty cycle)
+    def comp_failure_rate(mttf, dc):
+        return dc / mttf
+    
+    def comp_mttf_eff(mttf, dc):
+        return mttf / dc if dc > 0 else float('inf')
+    
+    # Get component effective MTTFs and MTTRs
+    mttf_eff = {name: comp_mttf_eff(s['MTTF'], s['DC']) for name, s in components_db.items()}
+    mttr_comp = {name: s['MTTR'] for name, s in components_db.items()}
+    
+    # For series components, system failure rate ≈ sum of component failure rates
+    # For parallel blocks, we need to calculate equivalent failure rate
+    
+    # Parallel block failure rate: λ_parallel ≈ λ1*λ2*...*λn * (MTTR1 + MTTR2 + ... + MTTRn)^(n-1) for 2-out-of-n
+    # Simplified approximation for parallel blocks using availability
+    # λ_block ≈ (1 - A_block) * (sum of component repair rates)
+    
+    # Series component failure rates
+    lambda_C1 = 1.0 / mttf_eff['C1']
+    lambda_C7 = 1.0 / mttf_eff['C7']
+    
+    # Parallel block 2 (C2, C3, C4): All must fail for block to fail
+    # Approximate failure rate for 3 parallel components
+    lambda_C2 = 1.0 / mttf_eff['C2']
+    lambda_C3 = 1.0 / mttf_eff['C3']
+    lambda_C4 = 1.0 / mttf_eff['C4']
+    mu_C2, mu_C3, mu_C4 = 1.0/mttr_comp['C2'], 1.0/mttr_comp['C3'], 1.0/mttr_comp['C4']
+    # λ_block2 ≈ λ2*λ3*λ4 / (μ2*μ3 + μ2*μ4 + μ3*μ4) (for 3 parallel)
+    lambda_block2 = (lambda_C2 * lambda_C3 * lambda_C4) / (mu_C2*mu_C3 + mu_C2*mu_C4 + mu_C3*mu_C4)
+    
+    # Parallel block 3 (C5, C6): Both must fail for block to fail
+    lambda_C5 = 1.0 / mttf_eff['C5']
+    lambda_C6 = 1.0 / mttf_eff['C6']
+    mu_C5, mu_C6 = 1.0/mttr_comp['C5'], 1.0/mttr_comp['C6']
+    # λ_block3 ≈ λ5*λ6 / (μ5 + μ6) (for 2 parallel)
+    lambda_block3 = (lambda_C5 * lambda_C6) / (mu_C5 + mu_C6)
+    
+    # System failure rate (series connection of all blocks)
+    lambda_sys_theo = lambda_C1 + lambda_block2 + lambda_block3 + lambda_C7
+    
+    # Theoretical system MUT = 1 / λ_sys
+    sys_MUT_theo = 1.0 / lambda_sys_theo if lambda_sys_theo > 0 else float('inf')
+    
+    # Theoretical system MTTR using A = MUT / (MUT + MTTR)
+    # MTTR = MUT * (1 - A) / A
+    sys_MTTR_theo = sys_MUT_theo * (1 - sys_A_theo) / sys_A_theo if sys_A_theo > 0 else 0
+    
+    # Theoretical system MTBF = MUT + MTTR
+    sys_MTBF_theo = sys_MUT_theo + sys_MTTR_theo
+    
+    print(f"\nSystem Metrics:")
+    print(f"  MTBF:\t\tExp={sys_MTBF_exp:.2f}h,\tTheo={sys_MTBF_theo:.2f}h,\tError={abs(sys_MTBF_exp-sys_MTBF_theo)/sys_MTBF_theo*100:.1f}%")
+    print(f"  MUT:\t\tExp={sys_MUT_exp:.2f}h,\tTheo={sys_MUT_theo:.2f}h,\tError={abs(sys_MUT_exp-sys_MUT_theo)/sys_MUT_theo*100:.1f}%")
+    print(f"  MTTR:\t\tExp={sys_MTTR_exp:.2f}h,\tTheo={sys_MTTR_theo:.2f}h,\tError={abs(sys_MTTR_exp-sys_MTTR_theo)/sys_MTTR_theo*100:.1f}%" if sys_MTTR_theo > 0 else f"  MTTR:\t\tExp={sys_MTTR_exp:.2f}h,\tTheo={sys_MTTR_theo:.2f}h")
+    print(f"  A:\t\tExp={sys_A_exp:.4f},\tTheo={sys_A_theo:.4f},\tError={abs(sys_A_exp-sys_A_theo)/sys_A_theo*100:.1f}%")
+    
+    sys_results = {
+        'MTBF_exp': sys_MTBF_exp, 'MTBF_theo': sys_MTBF_theo,
+        'MUT_exp': sys_MUT_exp, 'MUT_theo': sys_MUT_theo,
+        'MTTR_exp': sys_MTTR_exp, 'MTTR_theo': sys_MTTR_theo,
+        'A_exp': sys_A_exp, 'A_theo': sys_A_theo,
+        'n_failures': sys_all_failures,
         'sample_data': sample_data
     }
+    
+    return comp_results, sys_results
+
 
 # VISUALIZATION
-def create_component_plots(results, output_dir):
+
+def create_component_availability_plots(results, output_dir):
+    """Create plots comparing component availability metrics."""
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     
     components = [r['component'] for r in results]
     x = np.arange(len(components))
     width = 0.35
     
-    # MTBF
+    # MTBF comparison
     ax1 = axes[0, 0]
-    ax1.bar(x - width/2, [r['MTBF_exp'] for r in results], width, label='Experimental', alpha=0.8)
-    ax1.bar(x + width/2, [r['MTBF_theo'] for r in results], width, label='Theoretical', alpha=0.8)
+    mtbf_exp = [r['MTBF_exp'] if r['MTBF_exp'] != float('inf') else 0 for r in results]
+    mtbf_theo = [r['MTBF_theo'] for r in results]
+    ax1.bar(x - width/2, mtbf_exp, width, label='Experimental', alpha=0.8, color='steelblue')
+    ax1.bar(x + width/2, mtbf_theo, width, label='Theoretical', alpha=0.8, color='coral')
     ax1.set_xlabel('Component')
     ax1.set_ylabel('MTBF (hours)')
-    ax1.set_title('Mean Time Between Failures')
+    ax1.set_title('Mean Time Between Failures (MTBF)')
     ax1.set_xticks(x)
     ax1.set_xticklabels(components)
     ax1.legend()
     ax1.grid(True, alpha=0.3, axis='y')
     
-    # MTTR
+    # MUT comparison
     ax2 = axes[0, 1]
-    ax2.bar(x - width/2, [r['MTTR_exp'] for r in results], width, label='Experimental', alpha=0.8, color='coral')
-    ax2.bar(x + width/2, [r['MTTR_theo'] for r in results], width, label='Theoretical', alpha=0.8, color='lightcoral')
+    ax2.bar(x - width/2, [r['MUT_exp'] for r in results], width, label='Experimental', alpha=0.8, color='steelblue')
+    ax2.bar(x + width/2, [r['MUT_theo'] for r in results], width, label='Theoretical', alpha=0.8, color='coral')
     ax2.set_xlabel('Component')
-    ax2.set_ylabel('MTTR (hours)')
-    ax2.set_title('Mean Time To Repair')
+    ax2.set_ylabel('MUT (hours)')
+    ax2.set_title('Mean Up Time (MUT)')
     ax2.set_xticks(x)
     ax2.set_xticklabels(components)
     ax2.legend()
     ax2.grid(True, alpha=0.3, axis='y')
     
-    # Availability
+    # MTTR comparison
     ax3 = axes[1, 0]
-    ax3.bar(x - width/2, [r['A_exp'] for r in results], width, label='Experimental', alpha=0.8, color='green')
-    ax3.bar(x + width/2, [r['A_theo'] for r in results], width, label='Theoretical', alpha=0.8, color='lightgreen')
+    ax3.bar(x - width/2, [r['MTTR_exp'] for r in results], width, label='Experimental', alpha=0.8, color='steelblue')
+    ax3.bar(x + width/2, [r['MTTR_theo'] for r in results], width, label='Theoretical', alpha=0.8, color='coral')
     ax3.set_xlabel('Component')
-    ax3.set_ylabel('Availability')
-    ax3.set_title('Availability Comparison')
+    ax3.set_ylabel('MTTR (hours)')
+    ax3.set_title('Mean Time To Repair (MTTR)')
     ax3.set_xticks(x)
     ax3.set_xticklabels(components)
-    ax3.set_ylim([0, 1.05])
     ax3.legend()
     ax3.grid(True, alpha=0.3, axis='y')
     
-    # MUT
+    # Availability comparison
     ax4 = axes[1, 1]
-    ax4.bar(components, [r['MUT'] for r in results], alpha=0.8, color='steelblue', edgecolor='black')
+    ax4.bar(x - width/2, [r['A_exp'] for r in results], width, label='Experimental', alpha=0.8, color='steelblue')
+    ax4.bar(x + width/2, [r['A_theo'] for r in results], width, label='Theoretical', alpha=0.8, color='coral')
     ax4.set_xlabel('Component')
-    ax4.set_ylabel('MUT (hours)')
-    ax4.set_title('Mean Up Time')
+    ax4.set_ylabel('Availability')
+    ax4.set_title('Component Availability (A)')
+    ax4.set_xticks(x)
+    ax4.set_xticklabels(components)
+    ax4.legend()
+    ax4.set_ylim([0.9 * min([r['A_exp'] for r in results]), 1.0])
     ax4.grid(True, alpha=0.3, axis='y')
     
     plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, 'component_repair.png'), dpi=150)
+    plt.savefig(os.path.join(output_dir, 'component_availability.png'), dpi=150)
     plt.close()
 
-def create_system_plots(results, output_dir):
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+
+def create_system_availability_plots(results, output_dir):
+    """Create plots for system availability metrics with experimental vs theoretical comparison."""
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     
-    # MTBF histogram
-    ax1 = axes[0]
-    if results['all_up_times']:
-        ax1.hist(results['all_up_times'], bins=40, alpha=0.7, color='green', edgecolor='black', density=True)
-        ax1.axvline(results['MTBF'], color='darkgreen', linestyle='--', linewidth=2, label=f'MTBF={results["MTBF"]:.2f}h')
-        ax1.legend()
-    ax1.set_xlabel('Up Time (hours)')
-    ax1.set_ylabel('Density')
-    ax1.set_title('System MTBF Distribution')
-    ax1.grid(True, alpha=0.3)
+    width = 0.35
+    x = np.arange(1)
     
-    # MTTR histogram
-    ax2 = axes[1]
-    if results['all_down_times']:
-        ax2.hist(results['all_down_times'], bins=40, alpha=0.7, color='red', edgecolor='black', density=True)
-        ax2.axvline(results['MTTR'], color='darkred', linestyle='--', linewidth=2, label=f'MTTR={results["MTTR"]:.2f}h')
-        ax2.legend()
-    ax2.set_xlabel('Down Time (hours)')
-    ax2.set_ylabel('Density')
-    ax2.set_title('System MTTR Distribution')
-    ax2.grid(True, alpha=0.3)
+    # MTBF comparison
+    ax1 = axes[0, 0]
+    bars1 = ax1.bar(x - width/2, [results['MTBF_exp']], width, label='Experimental', alpha=0.8, color='steelblue')
+    bars2 = ax1.bar(x + width/2, [results['MTBF_theo']], width, label='Theoretical', alpha=0.8, color='coral')
+    ax1.set_ylabel('MTBF (hours)')
+    ax1.set_title('System Mean Time Between Failures (MTBF)')
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(['System'])
+    ax1.legend()
+    ax1.grid(True, alpha=0.3, axis='y')
+    for bar in bars1:
+        ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height(), f'{bar.get_height():.2f}h', ha='center', va='bottom', fontsize=9)
+    for bar in bars2:
+        ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height(), f'{bar.get_height():.2f}h', ha='center', va='bottom', fontsize=9)
     
-    # Availability pie
-    ax3 = axes[2]
-    sizes = [results['A'] * 100, (1 - results['A']) * 100]
-    labels = [f'Up Time\n{results["A"]*100:.2f}%', f'Down Time\n{(1-results["A"])*100:.2f}%']
-    colors = ['#2ecc71', '#e74c3c']
-    ax3.pie(sizes, labels=labels, colors=colors, explode=(0.05, 0.05),
-            shadow=True, startangle=90, textprops={'fontsize': 11, 'weight': 'bold'})
-    ax3.set_title('System Availability')
+    # MUT comparison
+    ax2 = axes[0, 1]
+    bars1 = ax2.bar(x - width/2, [results['MUT_exp']], width, label='Experimental', alpha=0.8, color='steelblue')
+    bars2 = ax2.bar(x + width/2, [results['MUT_theo']], width, label='Theoretical', alpha=0.8, color='coral')
+    ax2.set_ylabel('MUT (hours)')
+    ax2.set_title('System Mean Up Time (MUT)')
+    ax2.set_xticks(x)
+    ax2.set_xticklabels(['System'])
+    ax2.legend()
+    ax2.grid(True, alpha=0.3, axis='y')
+    for bar in bars1:
+        ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height(), f'{bar.get_height():.2f}h', ha='center', va='bottom', fontsize=9)
+    for bar in bars2:
+        ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height(), f'{bar.get_height():.2f}h', ha='center', va='bottom', fontsize=9)
+    
+    # MTTR comparison
+    ax3 = axes[1, 0]
+    bars1 = ax3.bar(x - width/2, [results['MTTR_exp']], width, label='Experimental', alpha=0.8, color='steelblue')
+    bars2 = ax3.bar(x + width/2, [results['MTTR_theo']], width, label='Theoretical', alpha=0.8, color='coral')
+    ax3.set_ylabel('MTTR (hours)')
+    ax3.set_title('System Mean Time To Repair (MTTR)')
+    ax3.set_xticks(x)
+    ax3.set_xticklabels(['System'])
+    ax3.legend()
+    ax3.grid(True, alpha=0.3, axis='y')
+    for bar in bars1:
+        ax3.text(bar.get_x() + bar.get_width()/2, bar.get_height(), f'{bar.get_height():.2f}h', ha='center', va='bottom', fontsize=9)
+    for bar in bars2:
+        ax3.text(bar.get_x() + bar.get_width()/2, bar.get_height(), f'{bar.get_height():.2f}h', ha='center', va='bottom', fontsize=9)
+    
+    # Availability comparison
+    ax4 = axes[1, 1]
+    bars1 = ax4.bar(x - width/2, [results['A_exp']], width, label='Experimental', alpha=0.8, color='steelblue')
+    bars2 = ax4.bar(x + width/2, [results['A_theo']], width, label='Theoretical', alpha=0.8, color='coral')
+    ax4.set_ylabel('Availability')
+    ax4.set_title(f'System Availability at Tc={Tc}h')
+    ax4.set_xticks(x)
+    ax4.set_xticklabels(['System'])
+    ax4.legend()
+    ax4.set_ylim([0.9 * min(results['A_exp'], results['A_theo']), 1.0])
+    ax4.grid(True, alpha=0.3, axis='y')
+    for bar in bars1:
+        ax4.text(bar.get_x() + bar.get_width()/2, bar.get_height(), f'{bar.get_height():.4f}', ha='center', va='bottom', fontsize=9)
+    for bar in bars2:
+        ax4.text(bar.get_x() + bar.get_width()/2, bar.get_height(), f'{bar.get_height():.4f}', ha='center', va='bottom', fontsize=9)
     
     plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, 'system_repair.png'), dpi=150)
+    plt.savefig(os.path.join(output_dir, 'system_availability.png'), dpi=150)
     plt.close()
 
-def create_timeline_plot(sample_data, output_dir):
-    time, sys_hist, comp_hist = sample_data
+
+def create_timeline_plot_with_repair(sample_data, output_dir):
+    """Create timeline plot showing component and system states including repair."""
+    time, sys_hist, comp_states = sample_data
     
-    fig, ax = plt.subplots(figsize=(16, 8))
+    fig, axes = plt.subplots(2, 1, figsize=(14, 8), height_ratios=[1, 2])
     
-    color_map = {0: '#FF4444', 1: '#FFD700', 2: '#44FF44'}
-    components = sorted(comp_hist.keys())
-    all_items = ['SYSTEM'] + components
-    n_items = len(all_items)
-    row_height = 0.8
+    # System timeline
+    ax1 = axes[0]
+    sys_hist_arr = np.array(sys_hist)
+    ax1.fill_between(time, 0, 1, where=(sys_hist_arr == 1), 
+                     color='green', alpha=0.6, label='Operational')
+    ax1.fill_between(time, 0, 1, where=(sys_hist_arr == 0), 
+                     color='red', alpha=0.6, label='Failed')
+    ax1.set_ylabel('System State')
+    ax1.set_title('Sample Simulation - System State Over Time (With Repair)')
+    ax1.set_yticks([0, 1])
+    ax1.set_yticklabels(['Failed', 'OK'])
+    ax1.legend(loc='upper right')
+    ax1.grid(True, alpha=0.3, axis='x')
+    ax1.set_xlim([0, time[-1]])
     
-    # Draw system row
-    y_pos = n_items - 1
-    states = sys_hist
-    changes = np.where(states[:-1] != states[1:])[0] + 1
-    boundaries = np.concatenate(([0], changes, [len(states)]))
+    # Component timeline with repair states
+    ax2 = axes[1]
+    # State colors: 1=Operational(green), 0=Non-Op DC(yellow), -1=Failed(red), -2=Under Repair(blue)
+    colors = {1: 'green', 0: 'yellow', -1: 'red', -2: 'blue'}
+    components = list(comp_states.keys())
     
-    for i in range(len(boundaries) - 1):
-        start_idx = boundaries[i]
-        state = states[start_idx]
-        start_time = time[start_idx]
-        end_time = time[boundaries[i + 1]] if i < len(boundaries) - 2 else time[-1]
-        width = end_time - start_time
-        color = color_map[2] if state == 1 else color_map[0]
-        rect = Rectangle((start_time, y_pos - row_height/2), width, row_height, facecolor=color, edgecolor='darkgray', linewidth=0.8)
-        ax.add_patch(rect)
+    for i, (name, states) in enumerate(comp_states.items()):
+        states_arr = np.array(states)
+        for state, color in colors.items():
+            mask = states_arr == state
+            if np.any(mask):
+                ax2.fill_between(time, i - 0.4, i + 0.4, where=mask, 
+                               color=color, alpha=0.6)
     
-    # Draw component rows
-    for idx, comp_name in enumerate(components):
-        y_pos = n_items - idx - 2
-        states = np.array(comp_hist[comp_name])
-        changes = np.where(states[:-1] != states[1:])[0] + 1
-        boundaries = np.concatenate(([0], changes, [len(states)]))
-        
-        for i in range(len(boundaries) - 1):
-            start_idx = boundaries[i]
-            state = states[start_idx]
-            start_time = time[start_idx]
-            end_time = time[boundaries[i + 1]] if i < len(boundaries) - 2 else time[-1]
-            width = end_time - start_time
-            if width < 0.001:
-                continue
-            rect = Rectangle((start_time, y_pos - row_height/2), width, row_height, facecolor=color_map[state], edgecolor='none')
-            ax.add_patch(rect)
-    
-    ax.set_xlim([0, time[-1]])
-    ax.set_ylim([-0.5, n_items - 0.5])
-    ax.set_xlabel('Time (hours)', fontsize=12, fontweight='bold')
-    ax.set_ylabel('Component / System', fontsize=12, fontweight='bold')
-    ax.set_title('System and Component States Over Time (With Repair)', fontsize=14, fontweight='bold')
-    ax.set_yticks(range(n_items))
-    ax.set_yticklabels(all_items[::-1], fontsize=10, fontweight='bold')
-    ax.invert_yaxis()
-    ax.grid(True, axis='x', alpha=0.3, linestyle='--')
+    ax2.set_xlabel('Time (hours)')
+    ax2.set_ylabel('Component')
+    ax2.set_title('Component States Over Time (With Repair)')
+    ax2.set_yticks(range(len(components)))
+    ax2.set_yticklabels(components)
+    ax2.grid(True, alpha=0.3, axis='x')
+    ax2.set_xlim([0, time[-1]])
     
     legend_elements = [
-        Patch(facecolor=color_map[2], edgecolor='black', label='Operational'),
-        Patch(facecolor=color_map[1], edgecolor='black', label='Non-Op (DC)'),
-        Patch(facecolor=color_map[0], edgecolor='black', label='Under Repair'),
+        Patch(facecolor='green', alpha=0.6, label='Operational'),
+        Patch(facecolor='yellow', alpha=0.6, label='Non-Op (DC)'),
+        Patch(facecolor='red', alpha=0.6, label='Failed'),
+        Patch(facecolor='blue', alpha=0.6, label='Under Repair')
     ]
-    ax.legend(handles=legend_elements, loc='upper right', fontsize=10)
+    ax2.legend(handles=legend_elements, loc='upper right')
     
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, 'timeline_with_repair.png'), dpi=150)
     plt.close()
 
+
 if __name__ == "__main__":
     OUTPUT_DIR = ensure_output_dir('with_repair')
     
-    # Component analysis with repair
-    comp_results = run_component_analysis(COMPONENTS_DATA, Tc, DT, N_SIMS)
-    create_component_plots(comp_results, OUTPUT_DIR)
+    print_header("SIMULATION WITH REPAIR", "=", 70)
     
-    # System analysis with repair
-    sys_results = run_system_analysis(COMPONENTS_DATA, Tc, DT, N_SIMS)
-    create_system_plots(sys_results, OUTPUT_DIR)
-    create_timeline_plot(sys_results['sample_data'], OUTPUT_DIR)
+    # Run availability analysis with repair
+    comp_results, sys_results = run_availability_analysis(COMPONENTS_DATA, Tc, DT, N_SIMS)
+    
+    # Create plots
+    create_component_availability_plots(comp_results, OUTPUT_DIR)
+    create_system_availability_plots(sys_results, OUTPUT_DIR)
+    create_timeline_plot_with_repair(sys_results['sample_data'], OUTPUT_DIR)
     
     print(f"\nPlots saved to: {OUTPUT_DIR}/")
