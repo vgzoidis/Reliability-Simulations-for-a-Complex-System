@@ -8,20 +8,13 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from config import COMPONENTS_DATA, Tc, Ts, DT, N_SIMS, ensure_output_dir, print_header
 
 # =============================================================================
-# SIMULATION CORE
+# SIMULATION FUNCTIONS
 # =============================================================================
 
+# Function to simulate a component until first failure (without repair)
+# Returns the failure time or "None" if it didn't fail
 def simulate_component(mttf, duty_cycle, duration, dt):
-    """
-    Simulate a component without repair until first failure.
-    
-    Uses exponential distribution for failure time:
-    - Failure rate: λ = 1/MTTF
-    - Failure probability in time dt: P(fail) = 1 - e^(-λ·dt)
-    
-    Returns the failure time or None if it didn't fail.
-    """
-    # Calculate failure rate λ from MTTF
+    # Calculate failure rate λ from MTTF (λ = 1/MTTF)
     lam = 1.0 / mttf
     
     # Create time axis with step dt
@@ -56,30 +49,22 @@ def simulate_component(mttf, duty_cycle, duration, dt):
     
     return time_axis, np.array(status_history), failure_time
 
+# Function to simulate the system
+# Returns the system failure time or "None"
 def simulate_system(components_db, duration, dt):
-    """
-    Simulate system with structure: C1 → [C2||C3||C4] → [C5||C6] → C7
-    
-    System logic:
-    - Series connection: All blocks must be operational
-    - Parallel blocks: At least one component must be operational
-    
-    Returns the system failure time or None.
-    """
-    time_axis = np.arange(0, duration, dt)
-    
+
     # Initialize states of all components
+    time_axis = np.arange(0, duration, dt)
     comp_states = {name: [] for name in components_db}
     failed = {name: False for name in components_db}  # Which have failed
     current = {name: 1 for name in components_db}     # Current state
-    
     system_history = []
     system_failure_time = None
     system_failed = False
     
     # Simulation loop for each time step
     for t in time_axis:
-        # Update state of each component
+        # Update state of each component like in simulate_component
         for name, specs in components_db.items():
             if failed[name]:
                 # If failed, remains in failed state
@@ -101,20 +86,21 @@ def simulate_system(components_db, duration, dt):
             # Record state
             comp_states[name].append(current[name])
         
-        # Check system state based on structure
-        # Series connection: C1 → [C2||C3||C4] → [C5||C6] → C7
+        # Check system state based on the structure: C1 → [C2||C3||C4] → [C5||C6] → C7
+        # - Series connection: All blocks must be operational
+        # - Parallel blocks: At least one component must be operational
         
-        # C1 and C7 must be operational (not failed)
+        # C1 and C7 must be operational
         c1_ok = current['C1'] != -1
         c7_ok = current['C7'] != -1
         
-        # Block 2 (parallel): At least one of C2, C3, C4 must be operational
+        # Block2: At least one of C2, C3, C4 must be operational
         block2_ok = current['C2'] != -1 or current['C3'] != -1 or current['C4'] != -1
         
-        # Block 3 (parallel): At least one of C5, C6 must be operational
+        # Block3: At least one of C5, C6 must be operational
         block3_ok = current['C5'] != -1 or current['C6'] != -1
         
-        # System operational if all blocks are operational (series connection)
+        # System operational if all blocks are operational
         system_ok = c1_ok and block2_ok and block3_ok and c7_ok
         system_history.append(1 if system_ok else 0)
         
@@ -126,49 +112,44 @@ def simulate_system(components_db, duration, dt):
     return time_axis, np.array(system_history), comp_states, system_failure_time
 
 # =============================================================================
-# ANALYSIS
+# ANALYSIS AND PLOTTING FUNCTIONS
 # =============================================================================
 
+# Function to analyze each component's reliability
+# Calculates R(Tc) and λ Theoretical and Experimental for each component
 def run_component_analysis(components_db, duration, dt, n_sims):
-    """
-    Run Monte Carlo simulations for each component.
-    
-    Calculates:
-    - Reliability R(Tc): Probability of not failing at time Tc
-    - Failure rate λ: Frequency of failures per unit time
-    """
+
     print_header("COMPONENT RELIABILITY ANALYSIS (No Repair)", "=", 70)
     results = []
     
-    # Analyze each component
     for comp_name, specs in components_db.items():
         mttf, dc = specs['MTTF'], specs['DC']
         failure_times = []
         
-        # Monte Carlo: Execute N independent simulations
+        # Execute N independent simulations
         for i in range(n_sims):
             _, _, ft = simulate_component(mttf, dc, duration, dt)
             if ft is not None:
                 failure_times.append(ft)
         
         # --- Calculate Metrics ---
-        
-        # 1. Reliability R(Tc): Percentage of simulations without failure
+
+        # Experimental Reliability R(Tc): Percentage of simulations without failure
         failures = len(failure_times)
         R_exp = (n_sims - failures) / n_sims
         
-        # Theoretical reliability: R(t) = e^(-λ·DC·t)
+        # Theoretical Reliability: R(t) = e^(-λ·DC·t)
         R_theo = np.exp(-dc * duration / mttf)
         
-        # 2. Failure rate λ
-        lam_theo = 1.0 / mttf  # Theoretical: λ = 1/MTTF
+        # Theoretical Failure rate: λ = 1/MTTF
+        lam_theo = 1.0 / mttf
         
-        # Experimental: from relation R(t) = e^(-λ·DC·t) → λ = -ln(R)/(DC·t)
+        # Experimental Failure rate: R(t) = e^(-λ·DC·t) → λ = -ln(R)/(DC·t)
         lam_exp = -np.log(R_exp) / (dc * duration) if R_exp > 0 and dc > 0 else 0
         
         print(f"\n{comp_name}: MTTF={mttf}h, DC={dc}")
         print(f"  R(Tc={duration}h): Exp={R_exp:.4f}, Theo={R_theo:.4f}, Error={abs(R_exp-R_theo)/R_theo*100:.1f}%")
-        print(f"  λ: Theo={lam_theo:.6f}, Exp={lam_exp:.6f} failures/h")
+        print(f"  λ: Exp={lam_exp:.6f}, Theo={lam_theo:.6f} failures/h, Error={abs(lam_exp-lam_theo)/lam_theo*100:.1f}%")
         
         results.append({
             'component': comp_name, 'R_exp': R_exp, 'R_theo': R_theo,
@@ -178,12 +159,15 @@ def run_component_analysis(components_db, duration, dt, n_sims):
     
     return results
 
+# Function to analyze system reliability
+# Calculates R(Ts), λ, and MTTF (Theoretical and Experimental) for the system
 def run_system_analysis(components_db, duration, dt, n_sims):
     print_header("SYSTEM RELIABILITY ANALYSIS (No Repair)", "=", 70)
     
     failure_times = []
     sample_data = None
     
+    # Execute N independent system simulations
     for i in range(n_sims):
         time_axis, sys_hist, comp_states, ft = simulate_system(components_db, duration, dt)
         if i == 0:
@@ -193,27 +177,39 @@ def run_system_analysis(components_db, duration, dt, n_sims):
         if (i + 1) % 200 == 0:
             print(f"Completed {i+1}/{n_sims} simulations...")
     
+    # --- Calculate Metrics ---
+    
+    # Experimental Reliability R(Ts): Percentage of simulations without failure
     failures = len(failure_times)
     R_exp = (n_sims - failures) / n_sims
+    
+    # Experimental MTTF: Mean of all failure times
     MTTF_exp = np.mean(failure_times) if failure_times else float('inf')
+    
+    # Experimental Failure rate: λ = -ln(R)/t
     lam_exp = -np.log(R_exp) / duration if R_exp > 0 else float('inf')
     
-    # Theoretical system reliability
+    #Theoretical System Reliability
     def R_comp(mttf, dc, t):
         return np.exp(-dc * t / mttf)
-    
     R_C = {name: R_comp(s['MTTF'], s['DC'], duration) for name, s in components_db.items()}
     R_block2 = 1 - (1-R_C['C2']) * (1-R_C['C3']) * (1-R_C['C4'])
     R_block3 = 1 - (1-R_C['C5']) * (1-R_C['C6'])
     R_theo = R_C['C1'] * R_block2 * R_block3 * R_C['C7']
+    
+    # Theoretical Failure rate: λ = -ln(R)/t
     lam_theo = -np.log(R_theo) / duration if R_theo > 0 else float('inf')
     
+    # Theoretical MTTF: MTTF = 1/λ
+    MTTF_theo = 1 / lam_theo if lam_theo != float('inf') and lam_theo > 0 else float('inf')
+    
     print(f"\nSystem R(Ts={duration}h): Exp={R_exp:.4f}, Theo={R_theo:.4f}, Error={abs(R_exp-R_theo)/R_theo*100:.1f}%")
-    print(f"System λ: Theo={lam_theo:.6f}, Exp={lam_exp:.6f} failures/h")
-    print(f"System MTTF: {MTTF_exp:.2f}h" if MTTF_exp != float('inf') else "No failures observed")
+    print(f"System λ: Exp={lam_exp:.6f}, Theo={lam_theo:.6f} failures/h, Error={abs(lam_exp-lam_theo)/lam_theo*100:.1f}%")
+    print(f"System MTTF: Exp={MTTF_exp:.2f}h, Theo={MTTF_theo:.2f}h, Error={abs(MTTF_exp-MTTF_theo)/MTTF_theo*100:.1f}%" if MTTF_exp != float('inf') else f"System MTTF: Theo={MTTF_theo:.2f}h (No failures observed)")
     
     return {
-        'R_exp': R_exp, 'R_theo': R_theo, 'MTTF_exp': MTTF_exp,
+        'R_exp': R_exp, 'R_theo': R_theo, 
+        'MTTF_exp': MTTF_exp, 'MTTF_theo': MTTF_theo,
         'lambda_exp': lam_exp, 'lambda_theo': lam_theo,
         'failure_times': failure_times, 'sample_data': sample_data
     }
@@ -236,7 +232,7 @@ def create_component_plots(results, output_dir):
     ax1.set_xticks(x)
     ax1.set_xticklabels(components)
     ax1.legend()
-    ax1.grid(True, alpha=0.3)
+    ax1.grid(True, alpha=0.3, axis='y')
     
     # Lambda comparison
     ax2 = axes[1]
@@ -248,7 +244,7 @@ def create_component_plots(results, output_dir):
     ax2.set_xticks(x)
     ax2.set_xticklabels(components)
     ax2.legend()
-    ax2.grid(True, alpha=0.3)
+    ax2.grid(True, alpha=0.3, axis='y')
     
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, 'component_reliability.png'), dpi=150)
@@ -271,7 +267,8 @@ def create_system_plots(results, output_dir):
     ax2 = axes[1]
     if results['failure_times']:
         ax2.hist(results['failure_times'], bins=30, alpha=0.7, color='steelblue', edgecolor='black')
-        ax2.axvline(results['MTTF_exp'], color='red', linestyle='--', linewidth=2, label=f'MTTF={results["MTTF_exp"]:.2f}h')
+        ax2.axvline(results['MTTF_exp'], color='red', linestyle='--', linewidth=2, label=f'MTTF Exp={results["MTTF_exp"]:.2f}h')
+        ax2.axvline(results['MTTF_theo'], color='orange', linestyle='-.', linewidth=2, label=f'MTTF Theo={results["MTTF_theo"]:.2f}h')
         ax2.legend()
     ax2.set_xlabel('System Failure Time (hours)')
     ax2.set_ylabel('Frequency')
