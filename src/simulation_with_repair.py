@@ -5,7 +5,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from config import COMPONENTS_DATA, Tc, DT, N_SIMS, ensure_output_dir, print_header
+from config import COMPONENTS_DATA, Tc, DT, N_SIMS, ensure_output_dir
 
 # Component States:
 #  1 = Operational (active)
@@ -17,9 +17,7 @@ from config import COMPONENTS_DATA, Tc, DT, N_SIMS, ensure_output_dir, print_hea
 # When a component fails, it undergoes repair for a random time tr ~ Exp(1/MTTR).
 # After repair, the component returns to operational state.
 def simulate_system_with_repair(components_db, duration, dt):
-    
     time_axis = np.arange(0, duration, dt)
-    n_steps = len(time_axis)
     
     # Component tracking
     comp_states = {name: [] for name in components_db}
@@ -157,7 +155,6 @@ def simulate_system_with_repair(components_db, duration, dt):
 # Function to analyze the components and system reliability
 # Extracts metrics for MTBF, MUT, MTTR, and Availability
 def run_availability_analysis(components_db, Tc, dt, n_sims):
-
     print(f"\nRunning Availability Analysis with Repair (Tc={Tc}h)...")
     
     # Aggregate metrics across simulations
@@ -211,10 +208,8 @@ def run_availability_analysis(components_db, Tc, dt, n_sims):
         sys_total_up += sys_up_steps * dt
         sys_total_down += sys_down_steps * dt
     
-    print("\n")
-    
     # Calculate component metrics
-    print_header("COMPONENT AVAILABILITY METRICS", "-", 70)
+    print("\n\n\nCOMPONENT AVAILABILITY METRICS")
     comp_results = []
     
     for comp_name, specs in components_db.items():
@@ -252,11 +247,11 @@ def run_availability_analysis(components_db, Tc, dt, n_sims):
         # Availability A = MTTF / (MTTF + MTTR) = MUT / MTBF
         A_theo = MTTF_eff / (MTTF_eff + mttr_theo) if (MTTF_eff + mttr_theo) > 0 else 1.0
         
-        print(f"\n{comp_name}: MTTF={mttf_theo}h, MTTR={mttr_theo}h, DC={dc}")
+        print(f"{comp_name}: MTTF={mttf_theo}h, MTTR={mttr_theo}h, DC={dc}")
         print(f"  MTBF:\t\tExp={MTBF_exp:.2f}h,\tTheo={MTBF_theo:.2f}h,\tError={abs(MTBF_exp-MTBF_theo)/MTBF_theo*100:.1f}%")
         print(f"  MUT:\t\tExp={MUT_exp:.2f}h,\tTheo={MUT_theo:.2f}h,\tError={abs(MUT_exp-MUT_theo)/MUT_theo*100:.1f}%")
         print(f"  MTTR:\t\tExp={MTTR_exp:.2f}h,\tTheo={MTTR_theo_val:.2f}h,\tError={abs(MTTR_exp-MTTR_theo_val)/MTTR_theo_val*100:.1f}%" if MTTR_theo_val > 0 else f"  MTTR:\t\tExp={MTTR_exp:.2f}h,\tTheo={MTTR_theo_val:.2f}h")
-        print(f"  A:\t\tExp={A_exp:.4f},\tTheo={A_theo:.4f},\tError={abs(A_exp-A_theo)/A_theo*100:.1f}%")
+        print(f"  A:\t\tExp={A_exp:.4f},\tTheo={A_theo:.4f},\tError={abs(A_exp-A_theo)/A_theo*100:.1f}%\n")
         
         comp_results.append({
             'component': comp_name,
@@ -268,7 +263,7 @@ def run_availability_analysis(components_db, Tc, dt, n_sims):
         })
     
     # Calculate system metrics
-    print_header("SYSTEM AVAILABILITY METRICS", "-", 70)
+    print("\nSYSTEM METRICS:")
     
     total_time = n_sims * Tc
     
@@ -295,8 +290,7 @@ def run_availability_analysis(components_db, Tc, dt, n_sims):
         mttf_eff = mttf / dc if dc > 0 else float('inf')
         return mttf_eff / (mttf_eff + mttr)
     
-    A_C = {name: comp_availability(s['MTTF'], s['DC'], s['MTTR']) 
-           for name, s in components_db.items()}
+    A_C = {name: comp_availability(s['MTTF'], s['DC'], s['MTTR']) for name, s in components_db.items()}
     
     # System availability based on RBD structure
     A_block2 = 1 - (1 - A_C['C2']) * (1 - A_C['C3']) * (1 - A_C['C4'])
@@ -304,9 +298,6 @@ def run_availability_analysis(components_db, Tc, dt, n_sims):
     sys_A_theo = A_C['C1'] * A_block2 * A_block3 * A_C['C7']
     
     # Component effective failure rates (considering duty cycle)
-    def comp_failure_rate(mttf, dc):
-        return dc / mttf
-    
     def comp_mttf_eff(mttf, dc):
         return mttf / dc if dc > 0 else float('inf')
     
@@ -343,7 +334,6 @@ def run_availability_analysis(components_db, Tc, dt, n_sims):
     # Theoretical system MTBF = MUT + MTTR
     sys_MTBF_theo = sys_MUT_theo + sys_MTTR_theo
     
-    print(f"\nSystem Metrics:")
     print(f"  MTBF:\t\tExp={sys_MTBF_exp:.2f}h,\tTheo={sys_MTBF_theo:.2f}h,\tError={abs(sys_MTBF_exp-sys_MTBF_theo)/sys_MTBF_theo*100:.1f}%")
     print(f"  MUT:\t\tExp={sys_MUT_exp:.2f}h,\tTheo={sys_MUT_theo:.2f}h,\tError={abs(sys_MUT_exp-sys_MUT_theo)/sys_MUT_theo*100:.1f}%")
     print(f"  MTTR:\t\tExp={sys_MTTR_exp:.2f}h,\tTheo={sys_MTTR_theo:.2f}h,\tError={abs(sys_MTTR_exp-sys_MTTR_theo)/sys_MTTR_theo*100:.1f}%" if sys_MTTR_theo > 0 else f"  MTTR:\t\tExp={sys_MTTR_exp:.2f}h,\tTheo={sys_MTTR_theo:.2f}h")
@@ -360,11 +350,8 @@ def run_availability_analysis(components_db, Tc, dt, n_sims):
     
     return comp_results, sys_results
 
-
 # VISUALIZATION
-
 def create_component_availability_plots(results, output_dir):
-    """Create plots comparing component availability metrics."""
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     
     components = [r['component'] for r in results]
@@ -426,9 +413,7 @@ def create_component_availability_plots(results, output_dir):
     plt.savefig(os.path.join(output_dir, 'component_availability.png'), dpi=150)
     plt.close()
 
-
 def create_system_availability_plots(results, output_dir):
-    """Create plots for system availability metrics with experimental vs theoretical comparison."""
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     
     width = 0.35
@@ -499,9 +484,7 @@ def create_system_availability_plots(results, output_dir):
     plt.savefig(os.path.join(output_dir, 'system_availability.png'), dpi=150)
     plt.close()
 
-
 def create_timeline_plot_with_repair(sample_data, output_dir):
-    """Create timeline plot showing component and system states including repair."""
     time, sys_hist, comp_states = sample_data
     dt = time[1] - time[0] if len(time) > 1 else 0.01
     
@@ -579,7 +562,6 @@ def create_timeline_plot_with_repair(sample_data, output_dir):
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, 'timeline_with_repair.png'), dpi=150)
     plt.close()
-
 
 if __name__ == "__main__":
     OUTPUT_DIR = ensure_output_dir('with_repair')

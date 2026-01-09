@@ -14,7 +14,7 @@ COMPONENTS_DATA = {
 # Simulation Parameters
 Tc = 100.0       # Component study time
 Ts = 30.0        # System study time
-DT = 0.1       # Time step (hours)
+DT = 0.1         # Time step (hours)
 N_SIMS = 1000    # Number of simulations
 
 # Results directories

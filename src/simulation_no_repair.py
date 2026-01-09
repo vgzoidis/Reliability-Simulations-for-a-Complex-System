@@ -5,23 +5,23 @@ import os
 import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from config import COMPONENTS_DATA, Tc, Ts, DT, N_SIMS, ensure_output_dir, print_header
+from config import COMPONENTS_DATA, Tc, Ts, DT, N_SIMS, ensure_output_dir
 
 # Component States:
 #  1 = Operational (active)
 #  0 = Non-operational (due to duty cycle)
 # -1 = Failed (waiting for repair)
+# -2 = Under repair
 
 # Function to simulate the system
 # Returns the system failure time or "None"
 def simulate_system(components_db, duration, dt):
-
     # Initialize states of all components
     time_axis = np.arange(0, duration, dt)
     comp_states = {name: [] for name in components_db}
-    comp_failure_times = {name: None for name in components_db}  # Track component failure times
-    failed = {name: False for name in components_db}  # Which have failed
-    current = {name: 1 for name in components_db}     # Current state
+    comp_failure_times = {name: None for name in components_db} # Track component failure times
+    failed = {name: False for name in components_db}            # Which have failed
+    current = {name: 1 for name in components_db}               # Current state
     system_history = []
     system_failure_time = None
     system_failed = False
@@ -97,8 +97,7 @@ def run_combined_analysis(components_db, Tc, Ts, dt, n_sims):
         # Store sample data from first simulation
         if i == 0:
             # Store full data for component timeline, but truncate system data to Ts for system plot
-            sample_data = (time_axis[:Ts_steps], sys_hist[:Ts_steps], 
-                          {name: states[:Ts_steps] for name, states in comp_states.items()})
+            sample_data = (time_axis[:Ts_steps], sys_hist[:Ts_steps], {name: states[:Ts_steps] for name, states in comp_states.items()})
         
         # Collect component failure times (for Tc analysis)
         for name, ft in comp_ft.items():
@@ -109,8 +108,7 @@ def run_combined_analysis(components_db, Tc, Ts, dt, n_sims):
         if sys_ft is not None and sys_ft < Ts:
             system_failure_times_Ts.append(sys_ft)
     
-    # --- Calculate Component Metrics ---
-    print(f"\n\nCOMPONENT RELIABILITY:")
+    print("\n\n\nCOMPONENT RELIABILITY:")
     comp_results = []
     
     for comp_name, specs in components_db.items():
@@ -130,9 +128,9 @@ def run_combined_analysis(components_db, Tc, Ts, dt, n_sims):
         # Experimental Failure rate: R(t) = e^(-λ·DC·t) → λ = -ln(R)/(DC·t)
         lam_exp = -np.log(R_exp) / (dc * Tc) if R_exp > 0 and dc > 0 else 0
         
-        print(f"\n{comp_name}: MTTF={mttf}h, DC={dc}")
+        print(f"{comp_name}: MTTF={mttf}h, DC={dc}")
         print(f"  R: \tExp={R_exp:.4f}, \tTheo={R_theo:.4f}, \tError={abs(R_exp-R_theo)/R_theo*100:.1f}%")
-        print(f"  λ: \tExp={lam_exp:.4f}, \tTheo={lam_theo:.4f}, \tError={abs(lam_exp-lam_theo)/lam_theo*100:.1f}%")
+        print(f"  λ: \tExp={lam_exp:.4f}, \tTheo={lam_theo:.4f}, \tError={abs(lam_exp-lam_theo)/lam_theo*100:.1f}%\n")
         
         comp_results.append({
             'component': comp_name, 'R_exp': R_exp, 'R_theo': R_theo,
@@ -140,8 +138,7 @@ def run_combined_analysis(components_db, Tc, Ts, dt, n_sims):
             'failures': failures, 'failure_times': failure_times
         })
     
-    # --- Calculate System Metrics ---
-    print(f"\nSYSTEM RELIABILITY:")
+    print("\nSYSTEM RELIABILITY:")
     
     # Experimental Reliability R(Ts): Percentage of simulations without failure within Ts
     failures = len(system_failure_times_Ts)
@@ -156,6 +153,7 @@ def run_combined_analysis(components_db, Tc, Ts, dt, n_sims):
     # Theoretical System Reliability
     def R_comp(mttf, dc, t):
         return np.exp(-dc * t / mttf)
+    
     R_C = {name: R_comp(s['MTTF'], s['DC'], Ts) for name, s in components_db.items()}
     R_block2 = 1 - (1-R_C['C2']) * (1-R_C['C3']) * (1-R_C['C4'])
     R_block3 = 1 - (1-R_C['C5']) * (1-R_C['C6'])
@@ -179,7 +177,6 @@ def run_combined_analysis(components_db, Tc, Ts, dt, n_sims):
     }
     
     return comp_results, sys_results
-
 
 # VISUALIZATION
 def create_component_plots(results, output_dir):
